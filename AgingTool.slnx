@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Aging.Core/Aging.Core.csproj" />
+    <Project Path="src/Aging.Windows/Aging.Windows.csproj" />
+    <Project Path="src/Aging.WinForms/Aging.WinForms.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Aging.Probe/Aging.Probe.csproj" />
+    <Project Path="tests/Aging.Tests/Aging.Tests.csproj" />
+    <Project Path="tests/Aging.Windows.Tests/Aging.Windows.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,7 @@
+{
+  "Deployment": "installed",
+  "NativeArchitecture": "X64",
+  "MinimumWindowsBuild": 19045,
+  "ExternalEnginesIncluded": false,
+  "UserDataFolder": "%LOCALAPPDATA%\\GW.AgingTool"
+}

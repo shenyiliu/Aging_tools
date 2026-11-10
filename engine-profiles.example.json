@@ -1,0 +1,62 @@
+{
+  "BurnIn:0": {
+    "Executable": "C:\\TestEngines\\BurnInTest\\bit.exe",
+    "Sha256": "",
+    "FileVersion": "9.2.1006.0",
+    "VerificationNote": "待专机确认综合模式配置、参数和实际报告；不能直接启用",
+    "Verified": false,
+    "Arguments": [],
+    "ReportPath": "{runDir}\\{itemIndex}_BurnIn_report.log",
+    "PassPattern": "",
+    "FailPattern": "",
+    "SupportsDuration": false
+  },
+  "BurnIn:1": {
+    "Executable": "",
+    "Sha256": "",
+    "FileVersion": "",
+    "VerificationNote": "待专机确认综合(DX9)及 LastUsed_1.bitcfg",
+    "Verified": false,
+    "Arguments": [],
+    "ReportPath": "{runDir}\\{itemIndex}_BurnIn_DX9_report.log",
+    "PassPattern": "",
+    "FailPattern": "",
+    "SupportsDuration": false
+  },
+  "BurnIn:2": {
+    "Executable": "",
+    "Sha256": "",
+    "FileVersion": "",
+    "VerificationNote": "待专机确认硬盘模式及 LastUsed_2.bitcfg",
+    "Verified": false,
+    "Arguments": [],
+    "ReportPath": "{runDir}\\{itemIndex}_BurnIn_disk_report.log",
+    "PassPattern": "",
+    "FailPattern": "",
+    "SupportsDuration": false
+  },
+  "FurMark": {
+    "Executable": "",
+    "Sha256": "",
+    "FileVersion": "",
+    "VerificationNote": "引擎缺失，先固定版本，不得套用 FurMark 2 参数",
+    "Verified": false,
+    "Arguments": [],
+    "ReportPath": "{runDir}\\{itemIndex}_FurMark_report.log",
+    "PassPattern": "",
+    "FailPattern": "",
+    "SupportsDuration": false
+  },
+  "3DMark:3DMarkV2_AllItem": {
+    "Executable": "",
+    "Sha256": "",
+    "FileVersion": "",
+    "VerificationNote": "待提供安装目录、CLI 帮助及实际 XML 报告",
+    "Verified": false,
+    "Arguments": [],
+    "ReportPath": "{runDir}\\{itemIndex}_3DMark_report.xml",
+    "PassPattern": "",
+    "FailPattern": "",
+    "SupportsDuration": false
+  }
+}
