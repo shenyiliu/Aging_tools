@@ -5,6 +5,15 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>Test</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Branding/gmktec.ico</ApplicationIcon>
+    <Product>GMK 老化测试工具</Product>
+    <AssemblyTitle>GMK 老化测试工具</AssemblyTitle>
+    <Description>GMK 老化测试工具</Description>
+    <Company>GMK</Company>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../Aging.Windows/Aging.Windows.csproj" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Branding/gmktec.ico" LogicalName="Branding.gmktec.ico" />
+    <EmbeddedResource Include="Branding/gmktec-wordmark.png" LogicalName="Branding.gmktec-wordmark.png" />
+  </ItemGroup>
 </Project>

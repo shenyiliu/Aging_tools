@@ -85,6 +85,7 @@ public sealed class AgingCoordinator(IRunStore store, ILegacyLogWriter logs, ITa
                 run.CurrentIndex++;
             }
             Note(recovering ? "恢复任务" : (run.Simulation ? "开始模拟任务；结果不代表硬件通过" : "开始真实任务"));
+            if (!recovering && run.ExcludedItems.Count > 0) Note("仅执行本轮已选项目；未执行且不判通过：" + string.Join("；", run.ExcludedItems), "WARN");
             Commit();
             if (run.Options.AgingInNextBoot && !run.InitialBootCompleted && run.CurrentIndex == 0)
             {

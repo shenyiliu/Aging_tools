@@ -13,6 +13,6 @@ $output = Join-Path $repo 'artifacts\installer'
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 & $Compiler ("/DAppVersion=" + $version) ("/DSourceDir=" + $release) ("/DOutputDir=" + $output) (Join-Path $repo 'installer\GWAgingTool.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
-$setup = Join-Path $output ("GW_AgingTool_Setup_" + $version + '_win-x64.exe')
+$setup = Join-Path $output ("GMK_AgingTool_Setup_" + $version + '_win-x64.exe')
 (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($setup) | Set-Content -LiteralPath ($setup + '.sha256') -Encoding utf8
 Get-Item -LiteralPath $setup | Select-Object FullName,Length

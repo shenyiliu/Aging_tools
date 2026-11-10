@@ -48,6 +48,23 @@ public sealed class PlatformTests : IDisposable
         Assert.False(result.CanRun); Assert.Contains(result.Messages, x => x.Contains("未配置已验证引擎适配"));
     }
     [Fact]
+    public async Task ItemPreviewDoesNotTreatContinuationSetupAsAComponentFailure()
+    {
+        var options = new AppOptions { SwitchReboot = true };
+        var result = await new WindowsPlatform().CheckItemAsync(AgingItem.Parse("S3|1|30|60|N|N|N"), options, CancellationToken.None);
+        Assert.False(result.CanRun); // Missing PwrTest remains a real dependency error.
+        Assert.DoesNotContain(result.Messages, message => message.Contains("续测") || message.Contains("管理员"));
+    }
+    [Fact]
+    public async Task ExecutionDoesNotRequireLoginTaskForSelectedRebootRun()
+    {
+        var video = AgingItem.Parse("Video");
+        var run = AgingCoordinator.Create([AgingItem.Parse("Reboot|1|30|N|N|N|N"), video], new AppOptions { SwitchReboot = false }, false, root);
+        var result = await new WindowsPlatform().PreflightAsync(video, run, CancellationToken.None);
+        Assert.DoesNotContain(result.Messages, message => message.Contains("登录") || message.Contains("续测"));
+        Assert.Contains(result.Messages, message => message.Contains("视频文件"));
+    }
+    [Fact]
     public async Task UnverifiedProfileCannotRunEvenIfExecutableExists()
     {
         var item = AgingItem.Parse("FurMark|0.1|8X|1920x1080|Y");

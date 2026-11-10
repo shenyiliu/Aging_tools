@@ -14,8 +14,9 @@ public sealed class DashboardForm : Form
     public DashboardForm(MainForm owner)
     {
         this.owner = owner;
-        Ui.Style(this, "老化测试", new Size(940, 574));
-        summary = Ui.Label(this, "老化队列", new(20, 12, 660, 36)); summary.Font = new Font(Font.FontFamily, 14);
+        Ui.Style(this, BuildInfo.Product, new Size(940, 574));
+        AppBranding.Logo(this, new(20, 14, 132, 30));
+        summary = Ui.Label(this, "老化队列", new(170, 12, 536, 36)); summary.Font = new Font(Font.FontFamily, 14);
         simulation = Ui.Check(this, "仅演练（不测硬件）", false, new(716, 18, 204, 26));
         grid.Bounds = new(20, 60, 900, 224); grid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         grid.ColumnHeadersHeight = 32; grid.RowTemplate.Height = 30; grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(225, 239, 249); grid.DefaultCellStyle.SelectionForeColor = Color.Black;
@@ -53,7 +54,7 @@ public sealed class DashboardForm : Form
         }
         if (grid.Rows.Count > 0 && selected < grid.Rows.Count) grid.Rows[selected].Selected = true;
         grid.ResumeLayout();
-        summary.Text = run == null ? "真实老化队列 — 请先匹配工具路径并预检" : $"{(run.Simulation ? "流程演练，不代表硬件结果" : "真实测试")} · {Ui.Phase(run.Phase, run.Simulation)}";
+        summary.Text = run == null ? "真实老化队列 — 点击开始后选择本轮项目" : $"{(run.Simulation ? "流程演练，不代表硬件结果" : "真实测试")} · {Ui.Phase(run.Phase, run.Simulation)}" + (run.ExcludedItems.Count > 0 ? $" · 另有 {run.ExcludedItems.Count} 项未执行" : "");
         start.Text = simulation.Checked ? "开始流程演练" : "开始真实测试";
         start.Enabled = !owner.Coordinator.Busy && !pending && !owner.RecoveryBlocked; settings.Enabled = !pending; simulation.Enabled = !pending;
         if (pending) simulation.Checked = run!.Simulation;
@@ -66,9 +67,9 @@ public sealed class DashboardForm : Form
     {
         var run = owner.Coordinator.Current; int index = grid.CurrentRow?.Index ?? -1;
         if (run == null || index < 0 || index >= run.Items.Count)
-        { if (detail != null) detail.Text = "首次使用：检查队列及 Tools 组件路径；重启需管理员并保存登录后续测。\r\n真实测试调用已复制的 PwrTest、BurnInTest 和视频组件。温度与风扇支持依机型而定。\r\nFurMark/3DMark 原包缺少可执行引擎；当前不会启动缺失项目。\r\n流程演练不运行硬件，演练结果不能证明机器通过。"; return; }
+        { if (detail != null) detail.Text = "点击开始后选择本轮测试；不支持的电源模式可明确取消勾选，保存的队列不变。\r\n含重启时会保存进度；开机后手动打开工具，点击“恢复任务”继续。\r\n真实测试调用 PwrTest、BurnInTest 和视频组件。FurMark/3DMark 实际引擎仍缺失。\r\n温度、风扇支持依机型而定；流程演练不能证明硬件通过。"; return; }
         var entry = run.Items[index];
-        detail.Text = $"{entry.Item.Serialize()}\r\n{entry.Message}\r\n开始：{entry.StartedAt:yyyy-MM-dd HH:mm:ss}    结束：{entry.EndedAt:yyyy-MM-dd HH:mm:ss}\r\n日志：{run.LogDirectory}\r\n" + string.Join("\r\n", entry.Errors.Concat(entry.Reports));
+        detail.Text = $"{entry.Item.Serialize()}\r\n{entry.Message}\r\n开始：{entry.StartedAt:yyyy-MM-dd HH:mm:ss}    结束：{entry.EndedAt:yyyy-MM-dd HH:mm:ss}\r\n日志：{run.LogDirectory}\r\n" + (run.ExcludedItems.Count > 0 ? "本轮未执行：" + string.Join("；", run.ExcludedItems) + "\r\n" : "") + string.Join("\r\n", entry.Errors.Concat(entry.Reports));
     }
     protected override void Dispose(bool disposing) { if (disposing) refresh.Dispose(); base.Dispose(disposing); }
 }

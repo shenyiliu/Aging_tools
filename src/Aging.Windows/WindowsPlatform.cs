@@ -36,9 +36,20 @@ public sealed class WindowsPlatform : ITaskPlatform
 
     public async Task<PreflightResult> PreflightAsync(AgingItem item, RunSnapshot run, CancellationToken ct)
     {
+        var check = await CheckItemAsync(item, run.Options, ct);
+        var errors = check.CanRun ? new List<string>() : check.Messages.ToList();
+        var queue = run.Items.Select(x => x.Item).ToList();
+        if (RunRequirements.RequiresAdministrator(queue, run.Options) && !IsAdministrator)
+            errors.Add("所选测试需要管理员权限，请点击启动窗口的“以管理员重新打开”");
+        return new(errors.Count == 0, errors.Count == 0 ? ["预检通过；硬件行为仍需专机验证"] : errors);
+    }
+
+    // Dependency preview is read-only. Permission and login-task setup are handled once for the selected run.
+    public async Task<PreflightResult> CheckItemAsync(AgingItem item, AppOptions options, CancellationToken ct)
+    {
         var errors = new List<string>();
         errors.AddRange(MachineCompatibility.ApplicationErrors());
-        string originalMain = Path.Combine(run.Options.ReferenceRoot, "Test.exe");
+        string originalMain = Path.Combine(options.ReferenceRoot, "Test.exe");
         foreach (var process in Process.GetProcessesByName("Test"))
         {
             using (process)
@@ -51,14 +62,10 @@ public sealed class WindowsPlatform : ITaskPlatform
                 catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { /* inaccessible unrelated session */ }
             }
         }
-        if (item.IsPower && !IsAdministrator) errors.Add("重启/睡眠需要以管理员身份启动新工具");
-        if (item.FanProfile != "N") errors.AddRange(FanTestAdapter.Validate(run.Options.ReferenceRoot, item.FanProfile));
-        if ((item.Kind == TaskKind.Reboot || run.Options.SwitchReboot && run.Items.Count > 1 || run.Options.AgingInNextBoot) && !run.Options.ResumeAtLogon)
-            errors.Add("含重启的真实队列必须先启用并注册“登录后续测”");
-        if (run.Options.SwitchReboot && run.Items.Count > 1 && !IsAdministrator) errors.Add("切项重启需要管理员权限；不需要切项重启时请在设置中关闭该选项");
+        if (item.FanProfile != "N") errors.AddRange(FanTestAdapter.Validate(options.ReferenceRoot, item.FanProfile, false));
         if (item.Kind is TaskKind.S3 or TaskKind.S4 or TaskKind.CS)
         {
-            if (!File.Exists(run.Options.PwrTestPath)) errors.Add("缺少 PwrTest：" + run.Options.PwrTestPath);
+            if (!File.Exists(options.PwrTestPath)) errors.Add("缺少 PwrTest：" + options.PwrTestPath);
             var caps = new byte[128];
             if (!GetPwrCapabilities(caps)) errors.Add("无法读取系统电源能力");
             else if (item.Kind == TaskKind.S3 && caps[5] == 0 || item.Kind == TaskKind.S4 && (caps[6] == 0 || caps[8] == 0) || item.Kind == TaskKind.CS && caps[20] == 0)
@@ -66,14 +73,14 @@ public sealed class WindowsPlatform : ITaskPlatform
         }
         if (item.Kind == TaskKind.Video)
         {
-            if (!File.Exists(run.Options.VideoPath)) errors.Add("视频文件不存在：" + run.Options.VideoPath);
+            if (!File.Exists(options.VideoPath)) errors.Add("视频文件不存在：" + options.VideoPath);
             if (Type.GetTypeFromProgID("WMPlayer.OCX") == null) errors.Add("Windows Media Player ActiveX 未安装");
         }
-        if (item.Kind == TaskKind.BurnIn && !string.IsNullOrWhiteSpace(run.Options.BurnInPath))
-            errors.AddRange(BurnInAdapter.Validate(run.Options.BurnInPath, item));
+        if (item.Kind == TaskKind.BurnIn && !string.IsNullOrWhiteSpace(options.BurnInPath))
+            errors.AddRange(BurnInAdapter.Validate(options.BurnInPath, item, false));
         else if (item.IsStress)
         {
-            if (!run.Options.Engines.TryGetValue(ProfileKey(item), out var profile)) errors.Add("未配置已验证引擎适配：" + ProfileKey(item));
+            if (!options.Engines.TryGetValue(ProfileKey(item), out var profile)) errors.Add("未配置已验证引擎适配：" + ProfileKey(item));
             else
             {
                 if (!File.Exists(profile.Executable)) errors.Add("引擎不存在：" + profile.Executable);

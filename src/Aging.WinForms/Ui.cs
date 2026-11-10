@@ -14,7 +14,7 @@ internal static class Ui
     {
         form.Text = title; form.Font = DefaultFont; form.AutoScaleMode = AutoScaleMode.Dpi;
         form.BackColor = Color.White; form.ClientSize = size; form.StartPosition = FormStartPosition.CenterParent;
-        form.MinimumSize = form.Size; form.Icon = SystemIcons.Application;
+        form.MinimumSize = form.Size; form.Icon = AppBranding.Icon;
     }
     public static Button Button(Control parent, string text, Rectangle bounds, EventHandler click)
     {

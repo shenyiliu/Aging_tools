@@ -2,6 +2,8 @@
   "Deployment": "installed",
   "NativeArchitecture": "X64",
   "MinimumWindowsBuild": 19045,
-  "ExternalEnginesIncluded": false,
+  "ExternalEnginesIncluded": true,
+  "BundledEngines": ["BurnInTest 9.2.1006.0"],
+  "MissingEngines": ["FurMark", "3DMark"],
   "UserDataFolder": "%LOCALAPPDATA%\\GW.AgingTool"
 }

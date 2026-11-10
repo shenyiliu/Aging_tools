@@ -14,11 +14,11 @@ public static class BurnInAdapter
 {
     public const string SupportedVersion = "9.2.1006.0";
     public static string Configuration(string executable, int mode) => Path.Combine(Path.GetDirectoryName(executable) ?? "", $"LastUsed_{mode}.bitcfg");
-    public static IReadOnlyList<string> Validate(string executable, AgingItem item)
+    public static IReadOnlyList<string> Validate(string executable, AgingItem item, bool requireAdministrator = true)
     {
         var errors = new List<string>();
         if (!File.Exists(executable)) { errors.Add("请选择 BurnInTest 9.2 的 bit.exe，或选择包含它的 GW_TEST 工具目录"); return errors; }
-        if (!WindowsPlatform.IsAdministrator) errors.Add("BurnInTest 引擎要求管理员权限，请使用面板的“以管理员重新启动”");
+        if (requireAdministrator && !WindowsPlatform.IsAdministrator) errors.Add("BurnInTest 引擎要求管理员权限，请使用面板的“以管理员重新启动”");
         if (FileVersionInfo.GetVersionInfo(executable).FileVersion != SupportedVersion) errors.Add("内置 BurnIn 适配只支持文件版本 " + SupportedVersion);
         if (!File.Exists(Configuration(executable, item.BurnInMode))) errors.Add("缺少测试模式配置：" + Configuration(executable, item.BurnInMode));
         return errors;

@@ -107,13 +107,19 @@ public sealed class LogViewerForm : Form
                 if (outcome is "Fail" or "Uncertain" or "Aborted") uncertain = true;
                 text.AppendLine().AppendLine();
             }
+            int.TryParse(doc.Get("MAIN", "ExcludedCount", "0"), out int excludedCount);
+            if (excludedCount > 0)
+            {
+                text.AppendLine("本轮未执行（不判通过）：");
+                for (int i = 1; i <= excludedCount; i++) text.AppendLine(doc.Get("MAIN", "Excluded" + i));
+            }
             details.Text = text.ToString();
             string total = doc.Get("MAIN", "Outcome");
             if (simulation) SetStatus("流程演练 · 不代表硬件结果", Color.DimGray);
             else if (errors > 0 || total is "Fail" or "Aborted") SetStatus("FAIL", Ui.Fail);
             else if (uncertain || total == "Uncertain") SetStatus("结果未确认", Color.DarkOrange);
             else if (!completed) SetStatus("测试未完成", Color.DarkOrange);
-            else SetStatus("PASS", Ui.Pass);
+            else SetStatus(excludedCount > 0 ? "所选项目 PASS · 有项目未执行" : "PASS", Ui.Pass);
             string telemetry = Path.Combine(directory, "GW_CoreTemp.log"); if (File.Exists(telemetry)) LoadTelemetry(telemetry);
         }
         catch (Exception e) { chart.Visible = false; SetStatus("日志读取失败", Ui.Fail); details.Text = "无法读取日志：" + e.Message; }

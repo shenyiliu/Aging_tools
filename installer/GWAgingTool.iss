@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.2.5"
 #endif
 #ifndef SourceDir
   #error SourceDir is required
@@ -9,13 +9,17 @@
 #endif
 
 [Setup]
+#ifdef QAAppId
+AppId={#QAAppId}
+#else
 AppId={{E8AC1C37-B197-4F44-91F5-3F2CE5941382}
-AppName=GW 老化测试工具
+#endif
+AppName=GMK 老化测试工具
 AppVersion={#AppVersion}
-AppVerName=GW 老化测试工具 {#AppVersion}
-AppPublisher=GW Aging Tool Project
-DefaultDirName={autopf}\GW Aging Tool
-DefaultGroupName=GW 老化测试工具
+AppVerName=GMK 老化测试工具 {#AppVersion}
+AppPublisher=GMK
+DefaultDirName={autopf}\GMK Aging Tool
+DefaultGroupName=GMK 老化测试工具
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
@@ -23,16 +27,27 @@ ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19045
 AppMutex=Local\GW_AgingTool_Running
+#ifdef QAAppId
+SetupMutex=GW_AgingTool_Setup_QA
+#else
 SetupMutex=GW_AgingTool_Setup
+#endif
 CloseApplications=no
 RestartApplications=no
 UsePreviousAppDir=yes
+DisableDirPage=no
+SetupIconFile=..\src\Aging.WinForms\Branding\gmktec.ico
 UninstallDisplayIcon={app}\Test.exe
-UninstallDisplayName=GW 老化测试工具 {#AppVersion}
+UninstallDisplayName=GMK 老化测试工具 {#AppVersion}
 OutputDir={#OutputDir}
-OutputBaseFilename=GW_AgingTool_Setup_{#AppVersion}_win-x64
+OutputBaseFilename=GMK_AgingTool_Setup_{#AppVersion}_win-x64
+#ifdef QAAppId
+Compression=zip
+SolidCompression=no
+#else
 Compression=lzma2
 SolidCompression=yes
+#endif
 WizardStyle=modern
 SetupLogging=yes
 VersionInfoVersion={#AppVersion}.0
@@ -48,16 +63,85 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "installed.json"; DestDir: "{app}"; Flags: ignoreversion
 
+#ifndef QAAppId
 [Icons]
-Name: "{autoprograms}\GW 老化测试工具\老化测试工具"; Filename: "{app}\Test.exe"; WorkingDir: "{app}"
-Name: "{autoprograms}\GW 老化测试工具\本机兼容性检测"; Filename: "{app}\Test.exe"; Parameters: "--compatibility"; WorkingDir: "{app}"
-Name: "{autoprograms}\GW 老化测试工具\使用说明"; Filename: "{app}\安装与多机型部署.md"
-Name: "{autodesktop}\GW 老化测试工具"; Filename: "{app}\Test.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\GMK 老化测试工具\GMK 老化测试工具"; Filename: "{app}\Test.exe"; WorkingDir: "{app}"
+Name: "{autoprograms}\GMK 老化测试工具\本机兼容性检测"; Filename: "{app}\Test.exe"; Parameters: "--compatibility"; WorkingDir: "{app}"
+Name: "{autoprograms}\GMK 老化测试工具\使用说明"; Filename: "{app}\安装与多机型部署.md"
+Name: "{autodesktop}\GMK 老化测试工具"; Filename: "{app}\Test.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[InstallDelete]
+Type: files; Name: "{autodesktop}\GW 老化测试工具.lnk"
+Type: files; Name: "{autoprograms}\GW 老化测试工具\老化测试工具.lnk"
+Type: files; Name: "{autoprograms}\GW 老化测试工具\本机兼容性检测.lnk"
+Type: files; Name: "{autoprograms}\GW 老化测试工具\使用说明.lnk"
+Type: dirifempty; Name: "{autoprograms}\GW 老化测试工具"
+#endif
 
 [Run]
 Filename: "{app}\Test.exe"; Description: "启动老化测试工具（真实模式，启动测试前需配置并确认）"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [Code]
+function OpenReplaceProbe(FileName: String; Access, Share: Cardinal;
+  Security: Integer; Creation, Attributes: Cardinal; Template: Integer): Integer;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseReplaceProbe(Handle: Integer): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+function ReplaceProbeError(): Cardinal;
+  external 'GetLastError@kernel32.dll stdcall';
+
+function FindBlockedFile(const Directory: String; var BlockedPath: String;
+  var ErrorCode: Cardinal): Boolean;
+var
+  Entry: TFindRec;
+  Path: String;
+  Handle: Integer;
+begin
+  Result := False;
+  if not FindFirst(AddBackslash(Directory) + '*', Entry) then Exit;
+  try
+    repeat
+      if (Entry.Name <> '.') and (Entry.Name <> '..') then begin
+        Path := AddBackslash(Directory) + Entry.Name;
+        if (Entry.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then begin
+          if (Entry.Attributes and $400) = 0 then
+            Result := FindBlockedFile(Path, BlockedPath, ErrorCode);
+        end else if Pos('unins', Lowercase(Entry.Name)) <> 1 then begin
+          { Open for overwrite/delete access without changing any bytes. A readable
+            file can still deny replacement, as with the reported error 32. }
+          Handle := OpenReplaceProbe(Path, $40010000, 7, 0, 3, 0, 0);
+          if Handle = -1 then begin
+            ErrorCode := ReplaceProbeError();
+            BlockedPath := Path;
+            Result := True;
+          end else
+            CloseReplaceProbe(Handle);
+        end;
+        if Result then Exit;
+      end;
+    until not FindNext(Entry);
+  finally
+    FindClose(Entry);
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  BlockedPath: String;
+  ErrorCode: Cardinal;
+begin
+  Result := '';
+  if FindBlockedFile(ExpandConstant('{app}'), BlockedPath, ErrorCode) then begin
+    Log('GMK_INSTALL_LOCK_BLOCKED: ' + BlockedPath + '; Windows error ' + IntToStr(ErrorCode));
+    Result := '安装尚未开始，未替换任何程序文件。' + #13#10 + #13#10 +
+      '以下文件被其他程序或系统服务占用，或当前无替换权限：' + #13#10 +
+      BlockedPath + #13#10 + 'Windows 错误：' + IntToStr(ErrorCode) + #13#10 + #13#10 +
+      '请先结束老化测试并退出工具，再释放相关占用后重试。' + #13#10 +
+      '如果占用来自系统服务，请联系管理员处理，或重启 Windows 后再安装。' + #13#10 +
+      '请勿跳过文件，否则可能留下新旧文件混装、无法启动的程序。';
+  end;
+end;
+
 function InitializeSetup(): Boolean;
 var
   Version: TWindowsVersion;

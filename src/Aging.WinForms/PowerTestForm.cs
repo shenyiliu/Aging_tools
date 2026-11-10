@@ -50,7 +50,7 @@ public sealed class PowerTestForm : Form
         errors.Columns.Add("", 110); errors.Columns.Add("", 43, HorizontalAlignment.Right); Controls.Add(errors);
         events = new ListView { Bounds = new(280, 10, ClientSize.Width - 280, ClientSize.Height - 20), View = View.Details, HeaderStyle = ColumnHeaderStyle.None, FullRowSelect = true, Font = new Font(Font.FontFamily, 8), Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
         events.Columns.Add("", events.Width - 18); Controls.Add(events);
-        var footer = Ui.Label(this, "GW TEST", new(15, ClientSize.Height - 31, 101, 21)); footer.ForeColor = Ui.Teal; Ui.Drag(this, footer);
+        var footer = AppBranding.Logo(this, new(15, ClientSize.Height - 31, 101, 21)); Ui.Drag(this, footer);
         UpdateState();
     }
     private ItemRun? Entry => owner.Coordinator.Current?.Items.ElementAtOrDefault(itemIndex);

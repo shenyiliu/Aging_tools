@@ -27,21 +27,21 @@ public sealed class MainForm : Form
     private Button agingButton = null!;
     private MaximumVolumeSession? maximumVolume;
     private bool exiting;
-    private readonly bool resumeOnStart;
+    private bool preparingRun;
     private readonly string? smokeDirectory;
     public MainForm(AppFiles files, bool resumeOnStart = false, string? smokeDirectory = null, LegacyRequest? legacyRequest = null)
     {
-        Files = files; this.resumeOnStart = resumeOnStart; this.smokeDirectory = smokeDirectory; this.legacyRequest = legacyRequest;
-        Ui.Style(this, "Windows平台老化测试工具 " + BuildInfo.Version, new Size(446, 71));
+        Files = files; this.smokeDirectory = smokeDirectory; this.legacyRequest = legacyRequest;
+        Ui.Style(this, BuildInfo.Product, new Size(446, 71));
         FormBorderStyle = FormBorderStyle.None; MinimumSize = Size.Empty; ClientSize = new(446, 71); ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
         platform = new WindowsPlatform(); store = new JsonRunStore(files.CheckpointPath);
         Coordinator = new AgingCoordinator(store, logs, new HostPlatform(platform, new WorkerBridge(Program.MainExecutable)));
         Coordinator.Changed += run => { dashboard?.UpdateState(); UpdatePopup(); UpdateToolbar(); UpdatePowerWindow(run); };
         platform.PlayVideoAsync = (path, ct) => { using var video = new VideoForm(path, Path.Combine(Files.Options.ReferenceRoot, "Other", "ICON")); return Task.FromResult(video.Play(dashboard is { Visible: true } ? dashboard : this, ct)); };
         platform.ConfirmShutdownAsync = ConfirmShutdownAsync;
-        platform.BeforeReboot = () => { if (!LogonResume.IsRegisteredFor(Program.MainExecutable, Files.Root)) throw new IOException("登录续测任务不存在或路径已变更，取消重启"); maximumVolume?.Dispose(); };
-        var brand = Ui.Label(this, "GW TEST", new(6, 1, 92, 20)); brand.Font = new Font("Arial", 9, FontStyle.Bold); brand.ForeColor = Ui.Teal; Ui.Drag(this, brand);
-        title = Ui.Label(this, "老化测试 " + BuildInfo.Version, new(107, 1, 112, 20)); title.Font = new Font("Arial", 8); title.ForeColor = Ui.Teal; Ui.Drag(this, title);
+        platform.BeforeReboot = () => maximumVolume?.Dispose();
+        var brand = AppBranding.Logo(this, new(6, 1, 92, 20)); Ui.Drag(this, brand);
+        title = Ui.Label(this, BuildInfo.Name, new(107, 1, 120, 20)); title.Font = new Font("Microsoft YaHei UI", 8); title.ForeColor = Ui.Teal; Ui.Drag(this, title);
         IconButton("SN1.bmp", "SN / KEY", new(230, 0, 38, 20), (_, _) => Launch(Files.Options.SnKeyPath));
         IconButton("Setting1.bmp", "参数设置", new(282, 0, 38, 20), (_, _) => OpenSettings());
         IconButton("Info1.bmp", "系统信息", new(334, 0, 38, 20), (_, _) => ShowSystemInfo());
@@ -62,7 +62,7 @@ public sealed class MainForm : Form
         menu.Items.Add("本机兼容性检测", null, (_, _) => { var form = new CompatibilityForm(Files); form.Show(this); });
         menu.Items.Add("打开数据目录", null, (_, _) => Ui.OpenFolder(Files.Root)); menu.Items.Add("退出", null, (_, _) => Exit());
         ContextMenuStrip = menu;
-        tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "GW 老化测试 " + BuildInfo.Version, ContextMenuStrip = menu, Visible = smokeDirectory == null };
+        tray = new NotifyIcon { Icon = AppBranding.Icon, Text = BuildInfo.Product, ContextMenuStrip = menu, Visible = smokeDirectory == null };
         tray.DoubleClick += (_, _) => OpenDashboard();
         telemetry.Sampled += sample => { if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(() => dashboard?.SetTelemetry(sample))); };
         telemetry.Error += message => { if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(() => { if (Coordinator.Current is { } run) logs.Event(run, "WARN", "采集错误：" + message); })); };
@@ -97,12 +97,8 @@ public sealed class MainForm : Form
                 MessageBox.Show(this, "最新检查点损坏。已保留备份，但无法确认后续运行状态，记录为未确认。", "状态恢复");
             }
             if (smokeDirectory != null) { await RunSmokeAsync(smokeDirectory); return; }
-            if (resumeOnStart)
-            {
-                if (run == null || run.IsTerminal) { exiting = true; Close(); return; }
-                OpenDashboard(); await RecoverAsync();
-            }
-            else if (run is { IsTerminal: false })
+            // Legacy --resume launches also require an explicit manual recovery.
+            if (run is { IsTerminal: false })
             { OpenDashboard(); MessageBox.Show(dashboard, "发现未结束的任务。可选择恢复或终止；仅重开程序不会计为重启。", "任务恢复"); }
             else if (legacyRequest != null) OpenDashboard();
         }
@@ -138,10 +134,10 @@ public sealed class MainForm : Form
     private void UpdateToolbar()
     {
         var run = Coordinator.Current;
-        title.Text = run is { IsTerminal: false } ? $"{(run.Simulation ? "演练" : "真实")} {Ui.Phase(run.Phase)}" : "老化测试 " + BuildInfo.Version;
+        title.Text = run is { IsTerminal: false } ? $"{(run.Simulation ? "演练" : "真实")} {Ui.Phase(run.Phase)}" : BuildInfo.Name;
         string image = run == null ? "DefaultBtn.bmp" : run.Simulation ? "DefaultBtn.bmp" : run.HardwarePassed ? "PassBtn.bmp" : run.Phase is RunPhase.Failed or RunPhase.Aborted ? "FailBtn.bmp" : run.IsTerminal ? "DefaultBtn.bmp" : "RunBtn.bmp";
         agingButton.BackgroundImage = LoadImage(image);
-        agingButton.Text = run == null ? "老化测试" : run.Simulation ? (run.IsTerminal ? "演练完成" : "流程演练") : run.HardwarePassed ? "老化通过" : run.Phase is RunPhase.Failed or RunPhase.Aborted ? "老化失败" : run.IsTerminal ? "老化结束" : "老化测试";
+        agingButton.Text = run == null ? "老化测试" : run.Simulation ? (run.IsTerminal ? "演练完成" : "流程演练") : run.HardwarePassed ? (run.ExcludedItems.Count > 0 ? "已选项通过" : "老化通过") : run.Phase is RunPhase.Failed or RunPhase.Aborted ? "老化失败" : run.IsTerminal ? "老化结束" : "老化测试";
     }
     private void UpdatePopup()
     {
@@ -209,6 +205,8 @@ public sealed class MainForm : Form
     public void OpenLogs() { var viewer = new LogViewerForm(Files.LogsRoot); viewer.Show(this); }
     public async Task StartRunAsync(bool simulation)
     {
+        if (preparingRun) return;
+        preparingRun = true;
         try
         {
             if (RecoveryBlocked) throw new InvalidOperationException("状态恢复未完成，已禁止新建任务。请先备份并处理数据目录中的 active-run.json 及 .bak，再重新启动。");
@@ -223,21 +221,34 @@ public sealed class MainForm : Form
             var run = AgingCoordinator.Create(DisplayQueue, options, simulation, Files.LogsRoot);
             if (!simulation)
             {
+                using (var setup = new StartRunForm(DisplayQueue, options))
+                {
+                    var choice = setup.ShowDialog(dashboard ?? (IWin32Window)this);
+                    if (choice == DialogResult.Ignore) { OpenSettings(); return; }
+                    if (choice == DialogResult.Retry) { RestartElevated(); return; }
+                    if (choice != DialogResult.OK) return;
+                    run = setup.CreateRun(Files.LogsRoot); options = run.Options;
+                }
+                string details = "本轮项目：\r\n" + string.Join("\r\n", run.Items.Select(x => x.Item.Name + "：" + StartRunForm.Describe(x.Item)));
+                if (run.ExcludedItems.Count > 0) details += "\r\n\r\n本轮未执行（不会判为通过）：" + string.Join("、", run.ExcludedItems.Select(x => AgingItem.Parse(x).Name));
+                details += options.AgingInNextBoot ? "\r\n本次只保存等待状态，请随后手动重启或关机再开机。" : "\r\n将执行以上项目的真实负载或电源操作。";
+                bool needsResume = RunRequirements.RequiresManualRecovery(run.Items.Select(x => x.Item).ToList(), options);
+                if (needsResume) details += "\r\n重启后请手动打开工具，点击“恢复任务”继续测试。";
+                if (options.TestWithMaxVolume) details += "\r\n已选择测试时使用最大音量。";
+                if (MessageBox.Show(dashboard ?? (IWin32Window)this, details + "\r\n\r\n确认开始？", "开始真实老化", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
                 var missing = new List<string>();
                 foreach (var entry in run.Items)
                 {
                     var check = await platform.PreflightAsync(entry.Item, run, CancellationToken.None);
                     if (!check.CanRun) missing.Add(entry.Item.Name + "：" + string.Join("；", check.Messages));
                 }
-                if (missing.Count > 0) { ShowPreflight(missing, "队列未就绪，未启动任何老化项目"); return; }
-                string details = options.AgingInNextBoot ? "已设置下次开机开始；本次只保存等待状态，请随后手动重启或关机再开机。" : "此队列将执行真实负载、重启或睡眠。";
-                if (options.TestWithMaxVolume) details += "\r\n已选择测试时使用最大音量。";
-                if (MessageBox.Show(dashboard ?? (IWin32Window)this, "真实依赖预检已通过。\r\n" + details + "\r\n确认在测试机执行？", "开始真实老化", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                if (missing.Count > 0) { ShowPreflight(missing, "依赖发生变化，未开始测试；请重新选择项目或修改参数"); return; }
             }
             if (legacyRequest != null && !simulation) { run.LegacyLogPath = legacyRequest.LogPath; run.LegacyItemIndex = legacyRequest.ItemIndex; }
             await ExecuteCoordinatorAsync(run, false);
         }
         catch (Exception e) { Ui.Error(dashboard ?? (IWin32Window)this, e); }
+        finally { preparingRun = false; }
     }
     private async Task ExecuteCoordinatorAsync(RunSnapshot run, bool recovering)
     {
@@ -249,7 +260,7 @@ public sealed class MainForm : Form
         try { await Coordinator.RunAsync(run, recovering); }
         finally { telemetry.Stop(); maximumVolume = null; dashboard?.UpdateState(); }
         if (run.Phase == RunPhase.AwaitingReboot && run.PendingOperation == "start")
-        { OpenDashboard(); MessageBox.Show(dashboard, "已保存下次开机启动任务。现在可以退出工具，然后手动重启或关机再开机。\r\n本账户登录后自动续测；仅重开软件不会启动。", "等待下次开机"); }
+        { OpenDashboard(); MessageBox.Show(dashboard, "已保存下次开机启动任务。现在可以退出工具，然后手动重启或关机再开机。\r\n开机后手动打开工具，点击“恢复任务”继续；同一次开机内重开软件不会启动。", "等待下次开机"); }
     }
     public async Task RecoverAsync()
     {
@@ -286,7 +297,7 @@ public sealed class MainForm : Form
             var lines = new List<string>();
             foreach (var entry in run.Items)
             {
-                var result = await platform.PreflightAsync(entry.Item, run, CancellationToken.None);
+                var result = await platform.CheckItemAsync(entry.Item, run.Options, CancellationToken.None);
                 lines.Add($"{entry.Item.Name}：{(result.CanRun ? "可执行" : "未就绪")}\r\n  " + string.Join("\r\n  ", result.Messages));
             }
             ShowPreflight(lines, "真实模式依赖预检（演练开关不影响检测）");
@@ -337,7 +348,7 @@ public sealed class MainForm : Form
     {
         Directory.CreateDirectory(directory);
         var smokeOptions = JsonData.Clone(Files.Options);
-        smokeOptions.SwitchReboot = false; smokeOptions.ResumeAtLogon = false; smokeOptions.ShutdownAfterAging = false; smokeOptions.StopOnFail = true; smokeOptions.AgingInNextBoot = false; smokeOptions.TestWithMaxVolume = false;
+        smokeOptions.SwitchReboot = false; smokeOptions.ShutdownAfterAging = false; smokeOptions.StopOnFail = true; smokeOptions.AgingInNextBoot = false; smokeOptions.TestWithMaxVolume = false;
         Files.Save([AgingItem.Parse("Reboot|3|30|N|N|N|N"), AgingItem.Parse("S3|3|30|60|N|N|N"), AgingItem.Parse("BurnIn|0.1|0"), AgingItem.Parse("Video")], smokeOptions);
         OpenDashboard();
         await Task.Delay(150); Ui.Capture(this, Path.Combine(directory, "toolbar.png"));

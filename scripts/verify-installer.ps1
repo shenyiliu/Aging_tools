@@ -2,7 +2,7 @@ param([switch]$SkipSmoke, [switch]$AllUsers, [string]$BaselineSetup)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $version = ([xml](Get-Content -LiteralPath (Join-Path $repo 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version
-$setup = Join-Path $repo ('artifacts\installer\GW_AgingTool_Setup_' + $version + '_win-x64.exe')
+$setup = Join-Path $repo ('artifacts\installer\GMK_AgingTool_Setup_' + $version + '_win-x64.exe')
 $scope = if ($AllUsers) { 'all-users' } else { 'current-user' }
 $qa = Join-Path $repo ('artifacts\verification\installer-' + $version + '\' + $scope)
 New-Item -ItemType Directory -Force -Path $qa | Out-Null
@@ -45,7 +45,8 @@ try {
     if ($BaselineSetup) {
         Run-Checked $BaselineSetup $installArgs
         $baselineVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe).FileVersion
-        if (!$baselineVersion.StartsWith('0.1.0')) { throw 'Upgrade baseline is not authentic 0.1.0 payload' }
+        $parsedBaselineVersion = $null
+        if (![Version]::TryParse($baselineVersion, [ref]$parsedBaselineVersion) -or $parsedBaselineVersion -ge [Version]($version + '.0')) { throw 'Upgrade baseline must have an older valid application version' }
         # The old application's --smoke always uses simulation and its own isolated data.
         $baselineSmoke = Join-Path $fixture 'baseline-smoke'
         Run-Checked $exe @('--smoke',('"' + $baselineSmoke + '"'))

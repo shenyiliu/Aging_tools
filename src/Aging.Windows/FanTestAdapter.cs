@@ -20,12 +20,12 @@ public static class FanTestAdapter
 
     public static string DirectoryFor(string root, string profile) => Path.Combine(root, "Reboot", "cpufan", profile);
 
-    public static IReadOnlyList<string> Validate(string root, string profile)
+    public static IReadOnlyList<string> Validate(string root, string profile, bool requireAdministrator = true)
     {
         if (profile == "N") return [];
         var errors = new List<string>();
         if (!ScriptHashes.TryGetValue(profile, out string? hash)) return ["不支持的风扇方案：" + profile];
-        if (!WindowsPlatform.IsAdministrator) errors.Add("厂商风扇检查需要管理员权限");
+        if (requireAdministrator && !WindowsPlatform.IsAdministrator) errors.Add("厂商风扇检查需要管理员权限");
         string directory = DirectoryFor(root, profile), script = Path.Combine(directory, "CPUFUN.cmd");
         if (!File.Exists(script)) errors.Add("风扇脚本不存在：" + script);
         else if (!Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(script))).Equals(hash, StringComparison.Ordinal))

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/Aging.WinForms/Aging.WinForms.csproj" /></ItemGroup>
+  <Target Name="CopyWorkerHost" AfterTargets="Build">
+    <ItemGroup><WorkerHost Include="../../src/Aging.WinForms/bin/$(Configuration)/net10.0-windows/Test.exe;../../src/Aging.WinForms/bin/$(Configuration)/net10.0-windows/Test.deps.json;../../src/Aging.WinForms/bin/$(Configuration)/net10.0-windows/Test.runtimeconfig.json" /></ItemGroup>
+    <Copy SourceFiles="@(WorkerHost)" DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

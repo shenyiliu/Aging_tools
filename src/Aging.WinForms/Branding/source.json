@@ -1,0 +1,11 @@
+{
+  "Brand": "GMKtec",
+  "SourcePage": "https://www.gmktec.com/",
+  "LogoURL": "https://cdn.shopify.com/s/files/1/0715/1314/5498/files/2__1_2c702b62-cf55-47bf-85ee-3dcf8595d6e4.png?v=1779541515",
+  "RetrievedOn": "2026-11-11",
+  "OriginalLogoSHA256": "18ee65ab159c11e7a83161c7bac232748d1d15bbf2ec2c93368f10a79f3d12cb",
+  "Usage": "User requested GMKtec official logo for GMK aging tool branding. Logo remains property of its owner.",
+  "IconURL": "https://cdn.shopify.com/s/files/1/0715/1314/5498/files/20241126175344.png?v=1764076753",
+  "IconSourceSHA256": "06e120a2bc7cc83b76382cf2d25682a64c9b8a767e171b659c80144eb4151389",
+  "Transformations": "Wordmark crops logo to x=122,y=90,width=1808,height=348, removing whitespace and tagline for small UI. ICO resizes the official favicon to 16,20,24,32,40,48,64,128,256 px; no redraw or recoloring."
+}

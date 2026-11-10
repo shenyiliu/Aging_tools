@@ -10,7 +10,7 @@ public sealed class SettingsForm : Form
     private readonly List<AgingItem> queue;
     private readonly AppOptions options;
     private readonly ListView list = new() { View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
-    private readonly CheckBox stopOnFail, switchBoot, shutdown, resume, nextBoot, maxVolume;
+    private readonly CheckBox stopOnFail, switchBoot, shutdown, nextBoot, maxVolume;
     private readonly TextBox video, reference, pwrtest, burnin, sft, sn, after, engines;
     private readonly ContextMenuStrip addMenu = new();
     public SettingsForm(AppFiles files)
@@ -48,13 +48,9 @@ public sealed class SettingsForm : Form
         stopOnFail = Ui.Check(aging, "老化发现错误时停止", options.StopOnFail, new(12, 278, 220, 28));
         switchBoot = Ui.Check(aging, "按原规则切项重启", options.SwitchReboot, new(264, 278, 250, 28));
         shutdown = Ui.Check(aging, "老化结束后关机", options.ShutdownAfterAging, new(12, 316, 230, 28));
-        resume = Ui.Check(aging, "登录后续测", options.ResumeAtLogon, new(264, 316, 230, 28));
         nextBoot = Ui.Check(aging, "下次开机开始（等待手动重启）", options.AgingInNextBoot, new(12, 350, 300, 26));
         maxVolume = Ui.Check(aging, "测试时使用最大音量", options.TestWithMaxVolume, new(332, 350, 284, 26));
-        nextBoot.CheckedChanged += (_, _) => { if (nextBoot.Checked) resume.Checked = true; };
-        resume.CheckedChanged += (_, _) => { if (!resume.Checked) nextBoot.Checked = false; };
-        if (nextBoot.Checked) resume.Checked = true;
-        Ui.Label(aging, "下次开机需登录此账户。Video 与结束后关机互斥。", new(12, 378, 604, 24));
+        Ui.Label(aging, "重启后手动打开工具并点击“恢复任务”。Video 与结束后关机互斥。", new(12, 378, 604, 24));
         Ui.Button(aging, "导入旧 Config.ini", new(12, 406, 150, 30), (_, _) => Import());
         Ui.Button(aging, "导出配置", new(176, 406, 110, 30), (_, _) => Export());
         Ui.Button(aging, "打开数据目录", new(300, 406, 150, 30), (_, _) => Ui.OpenFolder(files.Root));
@@ -174,14 +170,6 @@ public sealed class SettingsForm : Form
             options.Engines = JsonSerializer.Deserialize<Dictionary<string, EngineProfile>>(engines.Text, JsonData.Options) ?? throw new FormatException("引擎适配配置不能为空");
             if (queue.Count == 0 || options.ShutdownAfterAging && queue.Any(x => x.Kind == TaskKind.Video)) throw new FormatException("队列不能为空，且视频与完成后关机互斥");
             foreach (var item in queue) item.Validate();
-            if (resume.Checked)
-            {
-                if (!WindowsPlatform.IsAdministrator) throw new InvalidOperationException("请以管理员身份启动工具，再注册最高权限登录续测任务");
-                LogonResume.Register(Program.MainExecutable, files.Root);
-                if (!LogonResume.IsRegisteredFor(Program.MainExecutable, files.Root)) throw new IOException("计划任务注册校验失败");
-            }
-            else if (options.ResumeAtLogon) LogonResume.Remove();
-            options.ResumeAtLogon = resume.Checked;
             files.Save(queue, options); DialogResult = DialogResult.OK; Close();
         }
         catch (Exception e) { Ui.Error(this, e); }

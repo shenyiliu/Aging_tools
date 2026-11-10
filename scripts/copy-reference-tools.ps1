@@ -1,7 +1,10 @@
 param([string]$ReferenceRoot, [string]$Destination)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-if (!$ReferenceRoot) { $ReferenceRoot = Join-Path (Split-Path -Parent $repo) 'GW_TEST' }
+if (!$ReferenceRoot) {
+    $reinstalled = Join-Path ([Environment]::GetFolderPath('Desktop')) 'GW_TEST'
+    $ReferenceRoot = if (Test-Path -LiteralPath $reinstalled -PathType Container) { $reinstalled } else { Join-Path (Split-Path -Parent $repo) 'GW_TEST' }
+}
 if (!$Destination) { $Destination = Join-Path $repo 'Tools' }
 $sourceRoot = [IO.Path]::GetFullPath($ReferenceRoot)
 $targetRoot = [IO.Path]::GetFullPath($Destination)
@@ -19,7 +22,7 @@ foreach ($entry in $entries) {
     $enumeration.AttributesToSkip = [IO.FileAttributes]::ReparsePoint
     foreach ($source in [IO.Directory]::EnumerateFiles($directory, '*', $enumeration)) {
         $name = [IO.Path]::GetFileName($source)
-        if ($name -match '^unins\d*\.' -or $name -match '\.log$' -or ($entry -eq 'Sleep' -and $name -ieq 'Sleep.exe')) { continue }
+        if ($name -match '^unins\d*\.' -or $name -match '\.log$' -or ($entry -eq 'Sleep' -and $name -ieq 'Sleep.exe') -or $name -in @('FurMarkTest.exe','3DMarkTest.exe')) { continue }
         $relative = [IO.Path]::GetRelativePath($sourceRoot, $source)
         $target = Join-Path $targetRoot $relative
         New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($target)) | Out-Null
@@ -50,6 +53,6 @@ foreach ($line in Get-Content -LiteralPath $configPath) {
 $config | Set-Content -LiteralPath (Join-Path $targetRoot 'Other\Config.ini') -Encoding utf8
 $totalBytes = 0L
 foreach ($record in $records) { $totalBytes += $record['Bytes'] }
-[ordered]@{ Source='GW_TEST'; CreatedAt=[DateTimeOffset]::Now.ToString('o'); FileCount=$records.Count; Bytes=$totalBytes; Files=$records; Missing=@('FurMark executable engine','3DMark executable engine','Original BurnIn/FurMark/3DMark wrappers'); Generated=@('Other\Config.ini: aging settings only') } |
+[ordered]@{ Source=$sourceRoot; CreatedAt=[DateTimeOffset]::Now.ToString('o'); FileCount=$records.Count; Bytes=$totalBytes; Files=$records; Missing=@('FurMark executable engine','3DMark executable engine'); Generated=@('Other\Config.ini: aging settings only'); Note='Original wrappers and reference snapshots, when supplied, are preserved separately in Tools/OriginalWrappers and Tools/ReferenceEngines.' } |
     ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $targetRoot 'reuse-manifest.json') -Encoding utf8
 Write-Output "Copied and SHA256-verified $($records.Count) reusable files into $targetRoot"

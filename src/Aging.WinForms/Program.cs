@@ -66,12 +66,19 @@ internal static class Program
         if (smoke != null) root = Path.Combine(smoke, "data");
         using var identity = WindowsIdentity.GetCurrent();
         using var installIndicator = new Mutex(false, "Local\\GW_AgingTool_Running");
-        using var mutex = new Mutex(false, "Local\\GW_AgingTool_" + identity.User!.Value);
+        // Smoke runs always use isolated data and simulation. They must not block on the user's open application.
+        string instanceSuffix = smoke == null ? "" : "_Smoke_" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(root.ToUpperInvariant())));
+        using var mutex = new Mutex(false, "Local\\GW_AgingTool_" + identity.User!.Value + instanceSuffix);
         bool owns = false;
         try
         {
             try { owns = mutex.WaitOne(args.Contains("--wait-for-host-exit") ? TimeSpan.FromSeconds(15) : TimeSpan.Zero); } catch (AbandonedMutexException) { owns = true; }
-            if (!owns) { if (!args.Contains("--resume")) MessageBox.Show("同一用户已有老化测试工具正在运行，请从系统托盘打开。", "GW 老化测试"); return; }
+            if (!owns)
+            {
+                if (smoke != null) { Directory.CreateDirectory(smoke); File.WriteAllText(Path.Combine(smoke, "error.txt"), "同一隔离目录的演练已在运行"); Environment.ExitCode = 1; }
+                else if (!args.Contains("--resume")) MessageBox.Show("同一用户已有老化测试工具正在运行，请从系统托盘打开。", BuildInfo.Name);
+                return;
+            }
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) => { Directory.CreateDirectory(root); File.AppendAllText(Path.Combine(root, "crash.log"), DateTimeOffset.Now + " " + e.Exception + Environment.NewLine); Ui.Error(null, e.Exception); };
             var files = new AppFiles(root);

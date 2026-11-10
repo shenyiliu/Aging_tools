@@ -5,7 +5,8 @@ namespace Aging.Core;
 public static class BuildInfo
 {
     public static string Version => typeof(BuildInfo).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.1.1";
-    public static string Product => "GW Aging " + Version;
+    public const string Name = "GMK 老化测试工具";
+    public static string Product => Name + " " + Version;
 }
 
 public static class PlatformPolicy

@@ -95,6 +95,9 @@ public sealed class LegacyLogWriter : ILegacyLogWriter
         doc.Set(metadata, "Simulation", run.Simulation ? "Y" : "N");
         doc.Set(metadata, "HardwarePassed", run.HardwarePassed ? "Y" : "N");
         doc.Set(metadata, "RunId", run.RunId.ToString());
+        doc.Set(metadata, "ExecutedScope", run.ExcludedItems.Count == 0 ? "ConfiguredQueue" : "SelectedItemsOnly");
+        doc.Set(metadata, "ExcludedCount", run.ExcludedItems.Count.ToString());
+        for (int i = 0; i < run.ExcludedItems.Count; i++) doc.Set(metadata, "Excluded" + (i + 1), run.ExcludedItems[i]);
         if (!existing) doc.Set("ToolVer", "Test", BuildInfo.Product);
         for (int i = 0; i < run.Items.Count; i++)
         {

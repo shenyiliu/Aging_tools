@@ -102,7 +102,6 @@ public sealed class AppOptions
     public string PwrTestPath { get; set; } = "";
     public string BurnInPath { get; set; } = "";
     public int HybridSleep { get; set; }
-    public bool ResumeAtLogon { get; set; }
     public Dictionary<string, EngineProfile> Engines { get; set; } = [];
 }
 
@@ -141,6 +140,7 @@ public sealed class ItemRun
 
 public sealed class RunSnapshot
 {
+    public List<string> ExcludedItems { get; set; } = [];
     public int SchemaVersion { get; set; } = 1;
     public long Revision { get; set; }
     public Guid RunId { get; set; } = Guid.NewGuid();

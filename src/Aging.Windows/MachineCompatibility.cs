@@ -33,7 +33,7 @@ public static class MachineCompatibility
         }
         else report.Items.Add(new("系统电源能力", "未获取", "无法读取 SYSTEM_POWER_CAPABILITIES"));
         report.Items.Add(new("Windows Media Player", Type.GetTypeFromProgID("WMPlayer.OCX") != null ? "组件存在" : "组件缺失", "组件存在不代表所有视频解码器可用；N/KN 或精简镜像可能需要安装媒体功能"));
-        report.Items.Add(new("真实电源操作权限", WindowsPlatform.IsAdministrator ? "已提权" : "需管理员", "模拟模式可使用普通账户；真实重启/睡眠及最高权限登录任务需要提权"));
+        report.Items.Add(new("真实电源操作权限", WindowsPlatform.IsAdministrator ? "已提权" : "需管理员", "模拟模式可使用普通账户；真实重启/睡眠及压力引擎需要提权"));
         report.Items.Add(new("PwrTest x64", File.Exists(options.PwrTestPath) ? "文件存在" : "未配置或缺失", options.PwrTestPath));
         report.Items.Add(new("视频文件", File.Exists(options.VideoPath) ? "文件存在" : "未配置或缺失", options.VideoPath));
         using (var framework = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
