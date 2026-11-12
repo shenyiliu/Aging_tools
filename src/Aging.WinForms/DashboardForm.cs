@@ -67,7 +67,7 @@ public sealed class DashboardForm : Form
     {
         var run = owner.Coordinator.Current; int index = grid.CurrentRow?.Index ?? -1;
         if (run == null || index < 0 || index >= run.Items.Count)
-        { if (detail != null) detail.Text = "点击开始后选择本轮测试；不支持的电源模式可明确取消勾选，保存的队列不变。\r\n含重启时会保存进度；开机后手动打开工具，点击“恢复任务”继续。\r\n真实测试调用 PwrTest、BurnInTest 和视频组件。FurMark/3DMark 实际引擎仍缺失。\r\n温度、风扇支持依机型而定；流程演练不能证明硬件通过。"; return; }
+        { if (detail != null) detail.Text = "点击开始后选择本轮测试；保存的队列不变。\r\n含重启时保存检查点，进入当前 Windows 用户桌面后自动续测。\r\n负载引擎按队列参数启动，原始报告与 CPU/GPU/内存/磁盘采样保存在日志目录。\r\n缺少引擎、授权、报告或设备支持时不能判为通过；流程演练不能证明硬件通过。"; return; }
         var entry = run.Items[index];
         detail.Text = $"{entry.Item.Serialize()}\r\n{entry.Message}\r\n开始：{entry.StartedAt:yyyy-MM-dd HH:mm:ss}    结束：{entry.EndedAt:yyyy-MM-dd HH:mm:ss}\r\n日志：{run.LogDirectory}\r\n" + (run.ExcludedItems.Count > 0 ? "本轮未执行：" + string.Join("；", run.ExcludedItems) + "\r\n" : "") + string.Join("\r\n", entry.Errors.Concat(entry.Reports));
     }

@@ -28,6 +28,11 @@ internal static class Ui
     public static CheckBox Check(Control parent, string text, bool value, Rectangle bounds)
     { var c = new CheckBox { Text = text, Checked = value, Bounds = bounds }; parent.Controls.Add(c); return c; }
     public static void Error(IWin32Window? owner, Exception e) => MessageBox.Show(owner, e.Message, "操作未完成", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    public static void ShowModeless(Form form, IWin32Window owner)
+    {
+        if (!form.Visible) form.Show(owner);
+        form.Activate();
+    }
     public static string Phase(RunPhase phase, bool simulation = false) => phase switch
     { RunPhase.Idle => "等待", RunPhase.Preflight => "预检", RunPhase.Countdown => "倒计时", RunPhase.Running => "运行", RunPhase.Paused => "已暂停", RunPhase.AwaitingReboot => "等待重启", RunPhase.Completed => simulation ? "演练完成" : "PASS", RunPhase.Failed => simulation ? "演练失败" : "FAIL", RunPhase.Aborted => "已终止", _ => "未执行" };
     public static Color StateColor(RunPhase phase) => phase switch

@@ -5,3 +5,5 @@ artifacts/
 TestResults/
 *.user
 Tools/
+__pycache__/
+*.pyc

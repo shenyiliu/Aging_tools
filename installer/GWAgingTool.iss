@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.5"
+  #define AppVersion "0.3.0"
 #endif
 #ifndef SourceDir
   #error SourceDir is required
@@ -77,6 +77,10 @@ Type: files; Name: "{autoprograms}\GW 老化测试工具\本机兼容性检测.l
 Type: files; Name: "{autoprograms}\GW 老化测试工具\使用说明.lnk"
 Type: dirifempty; Name: "{autoprograms}\GW 老化测试工具"
 #endif
+
+[InstallDelete]
+Type: files; Name: "{app}\Tools\SFT\SFTClassic.exe"
+Type: files; Name: "{app}\Tools\3DMark\3DMarkTest.ini"
 
 [Run]
 Filename: "{app}\Test.exe"; Description: "启动老化测试工具（真实模式，启动测试前需配置并确认）"; Flags: nowait postinstall skipifsilent runasoriginaluser

@@ -1,6 +1,9 @@
 param([string]$Compiler, [string]$BaselineDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+$sdk = Join-Path $env:LOCALAPPDATA 'Programs\dotnet\dotnet.exe'
+if (!(Test-Path -LiteralPath $sdk)) { $sdk = (Get-Command dotnet -ErrorAction Stop).Source }
+$env:DOTNET_ROOT = Split-Path -Parent $sdk
 $version = ([xml](Get-Content -LiteralPath (Join-Path $repo 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version
 if (!$Compiler) { $Compiler = Join-Path $repo 'artifacts\build-inno\ISCC.exe' }
 if (!$BaselineDirectory) { $BaselineDirectory = Join-Path $repo 'artifacts\installer-baseline-0.2.3' }
@@ -78,6 +81,7 @@ try {
     $data = Join-Path $baselineSmoke 'data'
     $probe = Join-Path $qa 'baseline-probe.json'
     Run-Checked $exe @('--deployment-probe',('"' + $probe + '"'),'--data',('"' + $data + '"'))
+    $baselineOptions = Get-Content -LiteralPath (Join-Path $data 'options.json') -Raw | ConvertFrom-Json
     New-Item -ItemType Directory -Force -Path (Join-Path $data 'LOG') | Out-Null
     Set-Content -LiteralPath (Join-Path $data 'LOG\keep.txt') -Value 'must survive upgrade and uninstall' -Encoding utf8
     $userHashes = Data-Hashes
@@ -106,6 +110,20 @@ try {
     Run-Checked $exe @('--deployment-probe',('"' + $probe + '"'),'--data',('"' + $data + '"'))
     $state = Get-Content -LiteralPath $probe -Raw | ConvertFrom-Json
     if ($state.Version -ne $version -or !$state.RuntimeDirectory.StartsWith($target,[StringComparison]::OrdinalIgnoreCase) -or $state.Options.ReferenceRoot -ne (Join-Path $target 'Tools')) { throw 'Upgraded payload, bundled runtime, or tools path incorrect' }
+    # Loading old options adds current GPU defaults and clears a removed legacy SFT path.
+    # Check every prior semantic setting before rebasing the accepted migration for uninstall QA.
+    $oldOptionsPath = Join-Path $data 'options.json'
+    $stableUserHashes = $userHashes.Clone()
+    $stableUserHashes.Remove($oldOptionsPath); $stableUserHashes.Remove($oldOptionsPath + '.bak')
+    Assert-Hashes $stableUserHashes
+    $oldOptions = $baselineOptions
+    foreach ($property in $oldOptions.PSObject.Properties) {
+        if ($property.Name -eq 'SftPath' -and $state.Options.SftPath -eq '') { continue }
+        $beforeValue = ConvertTo-Json -InputObject $property.Value -Depth 20 -Compress
+        $afterValue = ConvertTo-Json -InputObject $state.Options.($property.Name) -Depth 20 -Compress
+        if ($beforeValue -ne $afterValue) { throw ('Option changed during migration: ' + $property.Name) }
+    }
+    $userHashes = Data-Hashes
     $payloadCount = 0
     foreach ($line in Get-Content -LiteralPath (Join-Path $target 'SHA256SUMS.txt')) {
         if ($line -match '^([a-f0-9]{64})  (.+)$') {
@@ -123,7 +141,7 @@ try {
     $smoke = Get-Content -LiteralPath (Join-Path $qa 'smoke\smoke-result.json') -Raw | ConvertFrom-Json
     if (!$smoke.Simulation -or $smoke.HardwarePassed -or $smoke.Outcome -ne 'Pass') { throw 'Installed UI smoke must pass only as simulation' }
     $env:GW_AGING_WORKER_EXE = $exe
-    & dotnet test (Join-Path $repo 'tests\Aging.Windows.Tests\Aging.Windows.Tests.csproj') -c Release --no-build --filter 'FullyQualifiedName~Worker' --logger 'trx;LogFileName=installed-worker.trx' --results-directory $qa *> (Join-Path $qa 'worker.log')
+    & $sdk test (Join-Path $repo 'tests\Aging.Windows.Tests\Aging.Windows.Tests.csproj') -c Release --no-build --filter 'FullyQualifiedName~Worker' --logger 'trx;LogFileName=installed-worker.trx' --results-directory $qa *> (Join-Path $qa 'worker.log')
     if ($LASTEXITCODE -ne 0) { throw 'Installed worker tests failed' }
     $service = New-Object -ComObject 'Schedule.Service'; $service.Connect(); $folder = $service.GetFolder('\')
     $ownTask = 'GW_AgingTool_InstallerQA_' + [guid]::NewGuid().ToString('N')

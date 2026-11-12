@@ -12,23 +12,43 @@ internal static class Program
     private static readonly BindingFlags privateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private static string output = "";
     private static Form shell = null!;
+    private static int burnInMode;
+    private static bool videoPass;
     [STAThread]
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
         output = Path.GetFullPath(args.Length > 0 ? args[0] : "e2e-results"); Directory.CreateDirectory(output);
+        if (args.Contains("--files-only"))
+        {
+            try { AppFilesMigrationRegressions(); }
+            catch (Exception e) { results.Add(new { Case = "UnhandledFailure", Passed = false, Error = e.ToString() }); Environment.ExitCode = 1; }
+            File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
+            return Environment.ExitCode;
+        }
         shell = new Form { Text = "GMK Aging E2E", ShowInTaskbar = false, WindowState = FormWindowState.Minimized };
         shell.Shown += async (_, _) =>
         {
             try
             {
+                if (args.Contains("--gpu-only")) { await ThroughStartupAsync("real-furmark-six-minute", TaskKind.FurMark, false, true); return; }
+                if (args.Contains("--hardware-only"))
+                {
+                    int modeAt = Array.IndexOf(args, "--burnin-mode");
+                    if (modeAt >= 0) { burnInMode = int.Parse(args[modeAt + 1]); await BurnInThroughStartupAsync(); }
+                    else for (burnInMode = 0; burnInMode < 3; burnInMode++) await BurnInThroughStartupAsync();
+                    return;
+                }
+                AppFilesMigrationRegressions();
                 await StartupSelectionAsync();
                 await DependencyPreviewWithoutLoginAsync();
+                await ReopenModelessWindowsAsync();
                 await LegacyResumeRequiresManualActionAsync();
                 await CancelDetectionAsync();
                 await AllModulesSimulationAsync();
                 await VideoThroughStartupAsync(false);
                 await VideoThroughStartupAsync(true);
+                videoPass = true; await VideoThroughStartupAsync(false); videoPass = false;
                 if (args.Contains("--hardware")) await BurnInThroughStartupAsync();
             }
             catch (Exception e) { results.Add(new { Case = "UnhandledFailure", Passed = false, Error = e.ToString() }); Environment.ExitCode = 1; }
@@ -49,6 +69,70 @@ internal static class Program
     }
     private static List<AgingItem> DefaultQueue() => [AgingItem.Parse("Reboot|1|30|N|N|N|N"), AgingItem.Parse("S3|1|30|60|N|N|N"), AgingItem.Parse("BurnIn|0.1|0"), AgingItem.Parse("S4|1|30|60|N|N|N"), AgingItem.Parse("Video")];
 
+    private static void AppFilesMigrationRegressions()
+    {
+        string bundle = AppFiles.FindBundledTools(), ownEngine = AppFiles.DiscoverBurnIn(bundle);
+        Require(bundle.Length > 0 && File.Exists(ownEngine), "File migration regression needs the owned tool bundle");
+        string bundleHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(ownEngine)));
+        string fixture = Path.Combine(output, "file-migration-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixture);
+        List<AgingItem> queue = [AgingItem.Parse("BurnIn|0.1|0"), AgingItem.Parse("Video"), AgingItem.Parse("BurnIn|0.1|2")];
+        AppOptions Rooted(string root) => new()
+        {
+            ReferenceRoot = root, SwitchReboot = false,
+            PwrTestPath = Path.Combine(root, "Sleep", "pwrtest_x64.exe"), VideoPath = Path.Combine(root, "SFT", "TestVideo.mp4"),
+            SftPath = Path.Combine(root, "SFT", "SFTClassic.exe"), BurnInPath = Path.Combine(root, "BurnInTest", "BurnInTest", "bit.exe"),
+            FurMarkPath = Path.Combine(root, "FurMark", "engine", "FurMark.exe"),
+            Mark3DPath = Path.Combine(root, "3DMark", "engine", "3DMarkCmd.exe"), Mark11Path = Path.Combine(root, "3DMark", "engine11", "3DMark11Cmd.exe")
+        };
+        AppFiles ReloadFixture(string name, AppOptions options)
+        {
+            var files = new AppFiles(Path.Combine(fixture, name, "data"));
+            files.Save(queue, options); files.Reload();
+            Require(files.Queue.Select(x => x.Serialize()).SequenceEqual(queue.Select(x => x.Serialize())), "Tool migration must preserve ordered queue entries, including repeated BurnIn items");
+            var persisted = JsonSerializer.Deserialize<AppOptions>(File.ReadAllBytes(files.OptionsPath), JsonData.Options)!;
+            Require(persisted.ReferenceRoot == files.Options.ReferenceRoot && persisted.FurMarkPath == files.Options.FurMarkPath, "Migrated defaults must persist for a later application launch");
+            return files;
+        }
+        void AssertBundlePaths(AppOptions options)
+        {
+            var defaults = AppFiles.DiscoverTools(bundle);
+            Require(options.ReferenceRoot == bundle && options.PwrTestPath == defaults.Power && options.VideoPath == defaults.Video && options.BurnInPath == ownEngine,
+                "Missing old suite paths must move to the shipped copy");
+            Require(options.FurMarkPath == GpuEngines.FindFurMark(bundle) && options.Mark3DPath == GpuEngines.FindMark3D(bundle, false) && options.Mark11Path == GpuEngines.FindMark3D(bundle, true),
+                "GPU paths under the old suite must migrate or become explicit missing dependencies");
+        }
+
+        string removedRoot = Path.Combine(fixture, "removed-suite");
+        Require(!Directory.Exists(removedRoot), "Deleted-suite fixture must start absent");
+        var removed = ReloadFixture("removed-root", Rooted(removedRoot)); AssertBundlePaths(removed.Options);
+        results.Add(new { Case = "AppFilesDeletedSuiteMigratesAllAgingPaths", Passed = true, PhysicalActions = false });
+
+        // The sibling deliberately shares the old directory's text prefix: it is an explicit override, not a suite child.
+        string externalRoot = removedRoot + "_external"; Directory.CreateDirectory(externalRoot);
+        var external = Rooted(externalRoot); external.ReferenceRoot = removedRoot;
+        foreach (string path in new[] { external.PwrTestPath, external.VideoPath, external.SftPath, external.BurnInPath, external.FurMarkPath, external.Mark3DPath, external.Mark11Path })
+        { Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, "Harmless file migration fixture; never executed"); }
+        var preserved = ReloadFixture("explicit-overrides", external);
+        Require(preserved.Options.ReferenceRoot == bundle && preserved.Options.PwrTestPath == external.PwrTestPath && preserved.Options.VideoPath == external.VideoPath &&
+            preserved.Options.SftPath == external.SftPath && preserved.Options.BurnInPath == external.BurnInPath && preserved.Options.FurMarkPath == external.FurMarkPath &&
+            preserved.Options.Mark3DPath == external.Mark3DPath && preserved.Options.Mark11Path == external.Mark11Path, "Root migration must preserve every explicit external tool override");
+        results.Add(new { Case = "AppFilesPreservesExternalOverridesAndDirectoryBoundary", Passed = true, PhysicalActions = false });
+
+        string matchingRoot = Path.Combine(fixture, "matching-suite"); var matchingOptions = Rooted(matchingRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(matchingOptions.BurnInPath)!); File.Copy(ownEngine, matchingOptions.BurnInPath);
+        var matching = ReloadFixture("matching-identity", matchingOptions); AssertBundlePaths(matching.Options);
+        results.Add(new { Case = "AppFilesMatchingEngineIdentityAdoptsOwnedBundle", Passed = true, EngineSHA256 = bundleHash, PhysicalActions = false });
+
+        string distinctRoot = Path.Combine(fixture, "distinct-suite"); var distinctOptions = Rooted(distinctRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(distinctOptions.BurnInPath)!); File.WriteAllText(distinctOptions.BurnInPath, "Distinct test engine identity; never executed");
+        var distinct = ReloadFixture("different-identity", distinctOptions);
+        Require(distinct.Options.ReferenceRoot == distinctRoot && distinct.Options.BurnInPath == distinctOptions.BurnInPath && distinct.Options.FurMarkPath == distinctOptions.FurMarkPath,
+            "An existing suite with a different engine identity must remain an explicit user choice");
+        results.Add(new { Case = "AppFilesDifferentEngineIdentityPreservesUserSuite", Passed = true, PhysicalActions = false });
+        Require(bundleHash == Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(ownEngine))), "Migration regression must never change the owned engine");
+    }
+
     private static async Task StartupSelectionAsync()
     {
         var queue = DefaultQueue(); var options = new AppOptions { SwitchReboot = true };
@@ -59,7 +143,7 @@ internal static class Program
         Control<Button>(form, "SelectRunnable").PerformClick();
         Require(form.SelectedIndices.SequenceEqual(new[] { 0, 2, 3, 4 }), "Runnable selection must explicitly exclude S3 only");
         var run = form.CreateRun(Path.Combine(output, "selection"));
-        Require(run.ExcludedItems.Count == 1 && queue.Count == 5 && Control<Label>(form, "ResumeHint").Text.Contains("手动"), "Selected reboot run must describe manual recovery and preserve the saved queue");
+        Require(run.ExcludedItems.Count == 1 && queue.Count == 5 && Control<Label>(form, "ResumeHint").Text.Contains("自动续测"), "Selected reboot run must describe automatic recovery and preserve the saved queue");
         var grid = Control<DataGridView>(form, "StartupItems");
         foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = row.Index is 2 or 4;
         Control<CheckBox>(form, "SwitchReboot").Checked = false;
@@ -118,6 +202,19 @@ internal static class Program
         owner.StopRun(); owner.Close();
         results.Add(new { Case = "LegacyResumeWaitsForManualRecovery", Passed = true, PhysicalActions = false, CheckpointUnchanged = true });
     }
+    private static async Task ReopenModelessWindowsAsync()
+    {
+        using var owner = new MainForm(Files("modeless-reentry")); owner.Show(shell); await Task.Delay(100);
+        var popup = (Form)typeof(MainForm).GetField("popup", privateInstance)!.GetValue(owner)!;
+        var ui = typeof(MainForm).Assembly.GetType("Aging.WinForms.Ui")!;
+        var show = ui.GetMethod("ShowModeless", BindingFlags.Public | BindingFlags.Static)!;
+        for (int i = 0; i < 5; i++) show.Invoke(null, [popup, owner]);
+        owner.OpenCompatibility(); owner.OpenCompatibility();
+        var compatibility = Application.OpenForms.OfType<CompatibilityForm>().Single();
+        await ((Task)typeof(CompatibilityForm).GetProperty("ReportReady", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(compatibility)!);
+        owner.OpenCompatibility(); Capture(compatibility, "compatibility-reentry.png");
+        owner.Close(); results.Add(new { Case = "RepeatedPopupAndCompatibilityReentry", Passed = true });
+    }
     private static async Task CancelDetectionAsync()
     {
         using var form = new StartRunForm([AgingItem.Parse("Video")], new AppOptions(), async (_, _, ct) => { await Task.Delay(5000, ct); return PreflightResult.Success("late result"); });
@@ -148,12 +245,30 @@ internal static class Program
 
     private static async Task<RunSnapshot> ThroughStartupAsync(string name, TaskKind selected, bool stopVideo, bool hardware)
     {
+        // Keep desktop input from answering the full-screen video's manual result buttons
+        // while this test drives its own FAIL/stop action through the application.
+        var videoInput = new VideoInputFilter();
+        Application.AddMessageFilter(videoInput);
+        try { return await ThroughStartupWithControlledInputAsync(name, selected, stopVideo, hardware); }
+        finally { Application.RemoveMessageFilter(videoInput); }
+    }
+    private sealed class VideoInputFilter : IMessageFilter
+    {
+        public bool PreFilterMessage(ref Message message)
+        {
+            bool input = message.Msg is >= 0x0100 and <= 0x0109 or >= 0x0200 and <= 0x020E;
+            return input && System.Windows.Forms.Control.FromChildHandle(message.HWnd)?.FindForm() is VideoForm;
+        }
+    }
+    private static async Task<RunSnapshot> ThroughStartupWithControlledInputAsync(string name, TaskKind selected, bool stopVideo, bool hardware)
+    {
         var files = Files(name);
         if (hardware)
         {
-            string referenceEngine = Path.Combine(files.Options.ReferenceRoot, "ReferenceEngines", "Reinstalled-BurnInTest-9.2.1006.0", "bit.exe");
-            Require(File.Exists(referenceEngine), "Reinstalled reference BurnIn engine is missing");
-            var options = JsonData.Clone(files.Options); options.BurnInPath = referenceEngine; files.Save(DefaultQueue(), options);
+            string referenceEngine = AppFiles.DiscoverBurnIn(files.Options.ReferenceRoot);
+            Require(File.Exists(referenceEngine), "Bundled BurnIn engine is missing");
+            var options = JsonData.Clone(files.Options); options.BurnInPath = referenceEngine;
+            var queue = DefaultQueue(); queue[2] = selected == TaskKind.FurMark ? AgingItem.Parse("FurMark|0.1|8X|1920x1080|Y") : AgingItem.Parse("BurnIn|0.1|" + burnInMode); files.Save(queue, options);
         }
         string beforeConfig = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(files.ConfigPath)));
         using var owner = new MainForm(files); owner.Show(shell); await Task.Delay(100); owner.OpenDashboard();
@@ -202,7 +317,7 @@ internal static class Program
                         else
                         {
                             var message = Message.Create(video.Handle, 0x0202, IntPtr.Zero, IntPtr.Zero); video.PreFilterMessage(ref message);
-                            var fail = video.Controls.OfType<Button>().Single(x => x.Text.StartsWith("失败")); fail.PerformClick();
+                            var button = video.Controls.OfType<Button>().Single(x => x.Text.StartsWith(videoPass ? "通过" : "失败")); button.PerformClick();
                         }
                     }
                 }
@@ -222,17 +337,17 @@ internal static class Program
         if (!hardware)
         {
             Require(playingObserved && maxPosition > 1, "Real video did not play");
-            Require(run.Outcome == (stopVideo ? Outcome.Aborted : Outcome.Fail), "Real manual FAIL/stop must not become PASS");
+            Require(run.Outcome == (stopVideo ? Outcome.Aborted : videoPass ? Outcome.Pass : Outcome.Fail), $"Video result control mismatch: actual={run.Outcome}, stopVideo={stopVideo}, stopped={stopped}, step={step}, message={run.Items[0].Message}, elapsed={watch.Elapsed}");
         }
         Capture(Application.OpenForms.OfType<DashboardForm>().Single(), name + "-result.png");
         owner.Close();
-        results.Add(new { Case = name, Passed = true, Simulation = false, RealVideoPlayed = playingObserved, PlaybackSeconds = maxPosition, StopRequested = stopped, Outcome = run.Outcome.ToString(), run.HardwarePassed, LogDirectory = run.LogDirectory, ExcludedCount = run.ExcludedItems.Count });
+        results.Add(new { Case = name, Passed = true, Simulation = false, RealVideoPlayed = playingObserved, PlaybackSeconds = maxPosition, HumanVisualAudioInspection = false, StopRequested = stopped, Outcome = run.Outcome.ToString(), run.HardwarePassed, LogDirectory = run.LogDirectory, ExcludedCount = run.ExcludedItems.Count });
         return run;
     }
-    private static async Task VideoThroughStartupAsync(bool stop) => await ThroughStartupAsync(stop ? "real-video-stop" : "real-video-fail", TaskKind.Video, stop, false);
+    private static async Task VideoThroughStartupAsync(bool stop) => await ThroughStartupAsync(stop ? "real-video-stop" : videoPass ? "real-video-pass-control" : "real-video-fail", TaskKind.Video, stop, false);
     private static async Task BurnInThroughStartupAsync()
     {
-        var run = await ThroughStartupAsync("real-burnin-six-minute", TaskKind.BurnIn, false, true);
+        var run = await ThroughStartupAsync("real-burnin-mode" + burnInMode + "-six-minute", TaskKind.BurnIn, false, true);
         if (run.Outcome != Outcome.Pass) results.Add(new { Case = "BurnInHardwareAcceptance", Passed = false, Detail = "Actual engine returned non-PASS; retained raw report, not overridden", Errors = run.Items.SelectMany(x => x.Errors).ToList() });
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string? className, string title);

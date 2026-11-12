@@ -13,6 +13,7 @@ namespace Aging.Windows;
 public static class BurnInAdapter
 {
     public const string SupportedVersion = "9.2.1006.0";
+    private static readonly string[] ConfigurationHashes = ["48EB7D4683AF20EF0FC3B0EFC23F6DD743DE9CDAC3D44A78538F97BB065683BA", "5C3C8791B2E713178CF8700C46DE458D8CE3DBF33E1DEE58EF56B86586DB275A", "EAC93341EF73CA3FDFA8867343EDEBDF76FE55FDDC9102FC8FA4E463F048ED71"];
     public static string Configuration(string executable, int mode) => Path.Combine(Path.GetDirectoryName(executable) ?? "", $"LastUsed_{mode}.bitcfg");
     public static IReadOnlyList<string> Validate(string executable, AgingItem item, bool requireAdministrator = true)
     {
@@ -21,6 +22,8 @@ public static class BurnInAdapter
         if (requireAdministrator && !WindowsPlatform.IsAdministrator) errors.Add("BurnInTest 引擎要求管理员权限，请使用面板的“以管理员重新启动”");
         if (FileVersionInfo.GetVersionInfo(executable).FileVersion != SupportedVersion) errors.Add("内置 BurnIn 适配只支持文件版本 " + SupportedVersion);
         if (!File.Exists(Configuration(executable, item.BurnInMode))) errors.Add("缺少测试模式配置：" + Configuration(executable, item.BurnInMode));
+        else if (!Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Configuration(executable, item.BurnInMode)))).Equals(ConfigurationHashes[item.BurnInMode], StringComparison.OrdinalIgnoreCase))
+            errors.Add("BurnIn 模式配置与已恢复的原版配置不一致，无法核对启用测试项目");
         return errors;
     }
     public static string CreateScript(string configuration, string report, double hours)
@@ -48,10 +51,32 @@ public static class BurnInAdapter
         if (!duration.Success) return new(Outcome.Uncertain, "BurnInTest 报告缺少实际测试时长");
         double seconds = double.Parse(duration.Groups[1].Value, CultureInfo.InvariantCulture) * 3600 + double.Parse(duration.Groups[2].Value, CultureInfo.InvariantCulture) * 60 + double.Parse(duration.Groups[3].Value, CultureInfo.InvariantCulture);
         if (seconds < hours * 3600 * 0.95) return new(Outcome.Fail, $"BurnInTest 实测仅 {seconds:0} 秒，未达到目标 {hours * 3600:0} 秒");
-        string[] rows = mode == 2
-            ? [@"(?im)^\s*Disk\s*\([^\r\n]+\)\s+\d+\s+[^\r\n]+\sPASS\s+0\s+"]
-            : [@"(?im)^\s*CPU\s+\d+\s+[^\r\n]+\sPASS\s+0\s+", @"(?im)^\s*Memory \(RAM\)\s+\d+\s+[^\r\n]+\sPASS\s+0\s+"];
-        if (rows.Any(row => !Regex.IsMatch(content, row))) return new(Outcome.Uncertain, "BurnInTest 报告缺少所选模式的实际测试结果行");
+        if (Regex.Matches(content, @"(?im)^\s*TEST RUN (?:PASSED|FAILED)\s*$").Count != 1)
+            return new(Outcome.Uncertain, "BurnInTest 报告包含多轮汇总，无法确认本轮结果");
+        var rows = Regex.Matches(content, @"(?im)^[\t ]*(?<name>[^\r\n]+?)\s{2,}(?<cycles>\d+|-)\s+(?<ops>[^\r\n]+?)\s+(?<result>PASS|FAIL)\s+(?<errors>\d+)[\t ]+[^\r\n]*\r?$")
+            .Cast<Match>().ToList();
+        if (rows.Any(row => row.Groups["result"].Value != "PASS" || row.Groups["errors"].Value != "0"))
+            return new(Outcome.Fail, "BurnInTest 测试行存在失败或非零错误数");
+        string[] required = mode switch
+        {
+            0 => ["CPU", "GPGPU", "Memory (RAM)", "2D Graphics", "3D Graphics", "Sound", "Video Playback", "Disk"],
+            1 => ["CPU", "Memory (RAM)", "2D Graphics", "3D Graphics", "Sound", "Video Playback", "Disk"],
+            // The frozen original disk configuration also enables Sound, confirmed by its raw report.
+            2 => ["Sound", "Disk"],
+            _ => []
+        };
+        if (required.Length == 0) return new(Outcome.Uncertain, "未知 BurnIn 模式");
+        foreach (string test in required)
+        {
+            var selected = rows.Where(row => test == "Disk" ? row.Groups["name"].Value.Trim().StartsWith("Disk (", StringComparison.Ordinal) : row.Groups["name"].Value.Trim() == test).ToList();
+            if (selected.Count == 0) return new(Outcome.Uncertain, "BurnInTest 报告缺少所选模式的实际测试结果行：" + test);
+            foreach (var row in selected)
+            {
+                var operations = Regex.Match(row.Groups["ops"].Value, @"^[\d,.]+");
+                if (!operations.Success || !double.TryParse(operations.Value, NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double count) || count <= 0)
+                    return new(Outcome.Uncertain, "BurnInTest 测试没有有效操作计数：" + row.Groups["name"].Value.Trim());
+            }
+        }
         return new(Outcome.Pass, $"BurnInTest 原始报告通过，实际负载运行 {seconds:0} 秒");
     }
     public static string CreateEngineCopy(string executable, string selectedConfig, string work, CancellationToken ct)
@@ -105,18 +130,29 @@ public static class BurnInAdapter
         run.Items[run.CurrentIndex].Reports.Add("BurnIn 原始结果目录：" + output);
         progress($"正在启动真实 BurnInTest，模式 {item.BurnInMode}，目标 {item.Hours * 60:0.##} 分钟");
             var result = await new OwnedProcessRunner().RunAsync(copiedExe, ["-P", "-S", script], isolatedEngine, Path.Combine(output, "engine"), TimeSpan.FromHours(item.Hours) + TimeSpan.FromMinutes(1), ct,
-                pid => progress($"BurnInTest 已启动 PID={pid}；真实负载目标 {item.Hours * 60:0.##} 分钟，停止会关闭本轮进程树"));
-            if (!File.Exists(report)) return new(result.ExitCode == 0 ? Outcome.Uncertain : Outcome.Fail, $"BurnInTest 退出码 {result.ExitCode}，没有本轮报告；请检查启动/授权/脚本执行错误");
+                pid => progress($"BurnInTest 已启动 PID={pid}；真实负载目标 {item.Hours * 60:0.##} 分钟，停止会关闭本轮进程树"), waitForDescendants: true);
+            TaskResult WithExecution(TaskResult evaluated) => evaluated with { Execution = new("Started", result.Elapsed.TotalSeconds, [output], result.ExitCode) };
+            if (!File.Exists(report)) return WithExecution(new(result.ExitCode == 0 ? Outcome.Uncertain : Outcome.Fail, $"BurnInTest 退出码 {result.ExitCode}，没有本轮报告；请检查启动/授权/脚本执行错误"));
             var evaluated = EvaluateReport(File.ReadAllText(report), item.Hours, item.BurnInMode);
-            if (evaluated.Outcome == Outcome.Fail) return evaluated;
-            return result.ExitCode != 0 ? new(Outcome.Fail, "BurnInTest 非零退出码 " + result.ExitCode + "，即使存在通过文本也不判通过") : evaluated;
+            if (evaluated.Outcome == Outcome.Fail) return WithExecution(evaluated);
+            return WithExecution(result.ExitCode != 0 ? new(Outcome.Fail, "BurnInTest 非零退出码 " + result.ExitCode + "，即使存在通过文本也不判通过") : evaluated);
         }
         finally
         {
-            foreach (string file in Directory.EnumerateFiles(work)) File.Copy(file, Path.Combine(output, Path.GetFileName(file)), true);
-            if (Directory.Exists(isolatedEngine)) foreach (string file in Directory.EnumerateFiles(isolatedEngine, "*.log")) File.Copy(file, Path.Combine(output, "engine-" + Path.GetFileName(file)), true);
-            // Delete only this unique, task-owned staging directory; never touch the engine installation.
-            Directory.Delete(work, true);
+            bool copied = false;
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(work)) File.Copy(file, Path.Combine(output, Path.GetFileName(file)), true);
+                if (Directory.Exists(isolatedEngine)) foreach (string file in Directory.EnumerateFiles(isolatedEngine, "*.log")) File.Copy(file, Path.Combine(output, "engine-" + Path.GetFileName(file)), true);
+                copied = true;
+                // Delete only this unique, task-owned staging directory after preserving its reports.
+                Directory.Delete(work, true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                try { File.AppendAllText(Path.Combine(output, "preservation-warning.txt"), $"{e.Message}\r\nStaging={work}\r\nReportsCopied={copied}\r\n"); }
+                catch (Exception warningError) when (warningError is IOException or UnauthorizedAccessException) { /* Preserve the primary execution error. */ }
+            }
         }
     }
 }

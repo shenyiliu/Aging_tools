@@ -77,7 +77,7 @@ public sealed class RunSelectionTests : IDisposable
         Assert.Equal(RunPhase.AwaitingReboot, restored.Phase); Assert.Equal("start", restored.PendingOperation);
         Assert.True(restored.Options.AgingInNextBoot); Assert.False(restored.Options.SwitchReboot);
         Assert.DoesNotContain("ResumeAtLogon", System.Text.Json.JsonSerializer.Serialize(restored.Options));
-        Assert.False(RunRequirements.RequiresAdministrator([AgingItem.Parse("Video")], options));
+        Assert.True(RunRequirements.RequiresAdministrator([AgingItem.Parse("Video")], options));
     }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

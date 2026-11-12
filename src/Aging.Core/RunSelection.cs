@@ -6,7 +6,7 @@ public static class RunRequirements
         queue.Count > 0 && (queue.Any(x => x.Kind == TaskKind.Reboot) || options.AgingInNextBoot || options.SwitchReboot && queue.Count > 1);
 
     public static bool RequiresAdministrator(IReadOnlyList<AgingItem> queue, AppOptions options) =>
-        queue.Any(x => x.IsPower || x.Kind == TaskKind.BurnIn || x.FanProfile != "N") || options.SwitchReboot && queue.Count > 1;
+        queue.Any(x => x.IsPower || x.Kind == TaskKind.BurnIn || x.FanProfile != "N") || options.AgingInNextBoot || options.SwitchReboot && queue.Count > 1;
 }
 
 public static class RunSelection

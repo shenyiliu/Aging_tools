@@ -11,7 +11,7 @@ public sealed class SettingsForm : Form
     private readonly AppOptions options;
     private readonly ListView list = new() { View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
     private readonly CheckBox stopOnFail, switchBoot, shutdown, nextBoot, maxVolume;
-    private readonly TextBox video, reference, pwrtest, burnin, sft, sn, after, engines;
+    private readonly TextBox video, reference, pwrtest, burnin, furmark, mark3d, mark11, after;
     private readonly ContextMenuStrip addMenu = new();
     public SettingsForm(AppFiles files)
     {
@@ -21,7 +21,7 @@ public sealed class SettingsForm : Form
         var tabs = new TabControl { Bounds = new(18, 18, 644, 474) }; Controls.Add(tabs);
         var aging = new TabPage("老化队列") { BackColor = Color.White };
         var paths = new TabPage("工具路径") { BackColor = Color.White };
-        var enginePage = new TabPage("引擎适配") { BackColor = Color.White };
+        var enginePage = new TabPage("GPU 引擎") { BackColor = Color.White };
         tabs.TabPages.AddRange([aging, paths, enginePage]);
         Ui.Label(aging, "* 通过表格中右键菜单或右侧按钮，可创建、编辑和删除老化项目，所有项目将按顺序依次执行。", new(12, 8, 604, 32));
         list.Bounds = new(12, 44, 574, 212); list.Columns.Add("No.", 40); list.Columns.Add("老化项目", 108); list.Columns.Add("时间 / 次数", 90); list.Columns.Add("倒计时 / 子项", 180); list.Columns.Add("", 144);
@@ -50,7 +50,7 @@ public sealed class SettingsForm : Form
         shutdown = Ui.Check(aging, "老化结束后关机", options.ShutdownAfterAging, new(12, 316, 230, 28));
         nextBoot = Ui.Check(aging, "下次开机开始（等待手动重启）", options.AgingInNextBoot, new(12, 350, 300, 26));
         maxVolume = Ui.Check(aging, "测试时使用最大音量", options.TestWithMaxVolume, new(332, 350, 284, 26));
-        Ui.Label(aging, "重启后手动打开工具并点击“恢复任务”。Video 与结束后关机互斥。", new(12, 378, 604, 24));
+        Ui.Label(aging, "重启后进入当前用户桌面自动续测。Video 与结束后关机互斥。", new(12, 378, 604, 24));
         Ui.Button(aging, "导入旧 Config.ini", new(12, 406, 150, 30), (_, _) => Import());
         Ui.Button(aging, "导出配置", new(176, 406, 110, 30), (_, _) => Export());
         Ui.Button(aging, "打开数据目录", new(300, 406, 150, 30), (_, _) => Ui.OpenFolder(files.Root));
@@ -58,28 +58,21 @@ public sealed class SettingsForm : Form
         video = PathField(paths, "视频文件", options.VideoPath, 54);
         pwrtest = PathField(paths, "PwrTest x64", options.PwrTestPath, 96);
         burnin = PathField(paths, "BurnIn 9.2 bit.exe", options.BurnInPath, 138);
-        sft = PathField(paths, "SFT 功能测试", options.SftPath, 180);
-        sn = PathField(paths, "SN / KEY 专用工具", options.SnKeyPath, 222);
-        after = PathField(paths, "完成后脚本 EXE/PS1", options.AfterAgingScript, 264);
+        after = PathField(paths, "完成后脚本 EXE/PS1", options.AfterAgingScript, 180);
+        furmark = PathField(enginePage, "FurMark.exe", options.FurMarkPath, 16);
+        mark3d = PathField(enginePage, "3DMarkCmd.exe", options.Mark3DPath, 64);
+        mark11 = PathField(enginePage, "3DMark11Cmd.exe", options.Mark11Path, 112);
         Ui.Button(paths, "按工具目录匹配路径", new(12, 320, 196, 30), (_, _) =>
         {
             var found = AppFiles.DiscoverTools(reference.Text.Trim());
             if (found.Power.Length > 0) pwrtest.Text = found.Power;
             if (found.Video.Length > 0) video.Text = found.Video;
-            if (found.Sft.Length > 0) sft.Text = found.Sft;
             string bit = AppFiles.DiscoverBurnIn(reference.Text.Trim()); if (bit.Length > 0) burnin.Text = bit;
-            MessageBox.Show(this, $"已找到：PwrTest {(found.Power.Length > 0 ? "✓" : "缺失")}，视频 {(found.Video.Length > 0 ? "✓" : "缺失")}，SFT {(found.Sft.Length > 0 ? "✓" : "缺失")}，BurnIn {(bit.Length > 0 ? "✓" : "缺失")}。\r\nBurnIn 使用内置 9.2 脚本适配，无需填写 JSON；FurMark/3DMark 仍未完成内置适配。", "匹配工具路径");
+            furmark.Text = GpuEngines.FindFurMark(reference.Text.Trim()); mark3d.Text = GpuEngines.FindMark3D(reference.Text.Trim(), false); mark11.Text = GpuEngines.FindMark3D(reference.Text.Trim(), true);
+            MessageBox.Show(this, $"已找到：PwrTest {(found.Power.Length > 0 ? "✓" : "缺失")}，视频 {(found.Video.Length > 0 ? "✓" : "缺失")}，BurnIn {(bit.Length > 0 ? "✓" : "缺失")}。\r\n引擎使用内置适配，无需填写 JSON。", "匹配工具路径");
         });
         Ui.Label(paths, "已包含的组件位于本工具 Tools 目录，可直接匹配。FurMark/3DMark 原包缺少引擎。\r\n温度按 CPU 支持读取；IP3/WB/Ed 风扇仅适用于对应主板。", new(12, 364, 604, 62));
-        Ui.Label(enginePage, "每个引擎按 SHA256、版本、参数和报告规则冻结。未验证的适配不能运行。", new(12, 8, 604, 40));
-        engines = new TextBox { Bounds = new(12, 52, 604, 330), Multiline = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font("Consolas", 9), Text = JsonSerializer.Serialize(options.Engines, JsonData.Options) };
-        enginePage.Controls.Add(engines);
-        Ui.Button(enginePage, "载入模板", new(12, 396, 120, 30), (_, _) =>
-        {
-            string template = Path.Combine(AppContext.BaseDirectory, "engine-profiles.example.json");
-            if (File.Exists(template)) engines.Text = File.ReadAllText(template);
-        });
-        Ui.Label(enginePage, "模板不能直接通过真实预检，需填入专机验证结果。", new(146, 396, 458, 30));
+        Ui.Label(enginePage, "分辨率、抗锯齿、场景和时长按队列设置自动传递。\r\n3DMark 命令行需要有效商业授权；缺少引擎或授权时不能判为通过。", new(12, 170, 604, 76));
         var save = Ui.Button(this, "保存", new(456, 506, 98, 30), (_, _) => Save());
         var cancel = Ui.Button(this, "取消", new(564, 506, 98, 30), (_, _) => Close());
         AcceptButton = save; CancelButton = cancel; RefreshQueue();
@@ -165,9 +158,9 @@ public sealed class SettingsForm : Form
             options.AgingInNextBoot = nextBoot.Checked;
             options.TestWithMaxVolume = maxVolume.Checked;
             options.ReferenceRoot = reference.Text.Trim(); options.VideoPath = video.Text.Trim(); options.PwrTestPath = pwrtest.Text.Trim();
-            options.SftPath = sft.Text.Trim(); options.SnKeyPath = sn.Text.Trim(); options.AfterAgingScript = after.Text.Trim();
+            options.SftPath = ""; options.SnKeyPath = ""; options.AfterAgingScript = after.Text.Trim();
             options.BurnInPath = burnin.Text.Trim();
-            options.Engines = JsonSerializer.Deserialize<Dictionary<string, EngineProfile>>(engines.Text, JsonData.Options) ?? throw new FormatException("引擎适配配置不能为空");
+            options.FurMarkPath = furmark.Text.Trim(); options.Mark3DPath = mark3d.Text.Trim(); options.Mark11Path = mark11.Text.Trim();
             if (queue.Count == 0 || options.ShutdownAfterAging && queue.Any(x => x.Kind == TaskKind.Video)) throw new FormatException("队列不能为空，且视频与完成后关机互斥");
             foreach (var item in queue) item.Validate();
             files.Save(queue, options); DialogResult = DialogResult.OK; Close();

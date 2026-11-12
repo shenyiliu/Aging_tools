@@ -36,17 +36,23 @@ public static class MachineCompatibility
         report.Items.Add(new("真实电源操作权限", WindowsPlatform.IsAdministrator ? "已提权" : "需管理员", "模拟模式可使用普通账户；真实重启/睡眠及压力引擎需要提权"));
         report.Items.Add(new("PwrTest x64", File.Exists(options.PwrTestPath) ? "文件存在" : "未配置或缺失", options.PwrTestPath));
         report.Items.Add(new("视频文件", File.Exists(options.VideoPath) ? "文件存在" : "未配置或缺失", options.VideoPath));
-        using (var framework = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
-        {
-            bool frameworkReady = Convert.ToInt32(framework?.GetValue("Release", 0) ?? 0) >= 378389;
-            report.Items.Add(new("SFT / .NET Framework", File.Exists(options.SftPath) && frameworkReady ? "文件与运行环境存在" : "未配置或依赖缺失", "原 SFT 使用 .NET Framework 4.5；自包含 .NET 10 不替代该旧运行环境"));
-        }
         foreach (var kind in new[] { "BurnIn", "FurMark", "3DMark" })
         {
             if (kind == "BurnIn" && File.Exists(options.BurnInPath))
             {
                 var issues = BurnInAdapter.Validate(options.BurnInPath, AgingItem.Parse("BurnIn|0.1|0"));
                 report.Items.Add(new("BurnIn", issues.Count == 0 ? "内置适配可启动；本型号需验收" : "未就绪", issues.Count == 0 ? options.BurnInPath : string.Join("；", issues)));
+                continue;
+            }
+            if (kind == "FurMark" && options.FurMarkPath.Length > 0)
+            {
+                var issues = FurMarkAdapter.Validate(options.FurMarkPath, AgingItem.Parse("FurMark|0.1|8X|1920x1080|Y"));
+                report.Items.Add(new(kind, issues.Count == 0 ? "专用适配可启动；本型号需验收" : "未就绪", issues.Count == 0 ? options.FurMarkPath : string.Join("；", issues)));
+                continue;
+            }
+            if (kind == "3DMark" && (options.Mark3DPath.Length > 0 || options.Mark11Path.Length > 0))
+            {
+                report.Items.Add(new(kind, "存在命令行路径；授权与场景待验收", "3DMark=" + options.Mark3DPath + "；3DMark11=" + options.Mark11Path + "；需要用户有效商业授权"));
                 continue;
             }
             var profiles = options.Engines.Where(x => x.Key == kind || x.Key.StartsWith(kind + ":", StringComparison.OrdinalIgnoreCase)).ToList();

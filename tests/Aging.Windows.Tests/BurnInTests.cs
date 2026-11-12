@@ -6,7 +6,16 @@ namespace Aging.Windows.Tests;
 
 public sealed class BurnInTests
 {
-    private const string Good = "BurnInTest V9.2 1006 (64-bit)\r\nTest Duration: 000h 06m 00s\r\nCPU  12  107 Trillion  PASS  0  No errors\r\nMemory (RAM)  12  107 Trillion  PASS  0  No errors\r\nDisk (C:)  3  4.970 Trillion  PASS  0  No errors\r\nTEST RUN PASSED\r\n";
+    private const string Good = "BurnInTest V9.2 1006 (64-bit)\r\nTest Duration: 000h 06m 00s\r\nCPU  12  107 Trillion  PASS  0  No errors\r\nGPGPU  12  107 Trillion  PASS  0  No errors\r\nMemory (RAM)  12  107 Trillion  PASS  0  No errors\r\n2D Graphics  2  12000  PASS  0  No errors\r\n3D Graphics  1  6000  PASS  0  No errors\r\nSound  1  6000  PASS  0  No errors\r\nVideo Playback  1  60  PASS  0  No errors\r\nDisk (C:)  3  4.970 Trillion  PASS  0  No errors\r\nTEST RUN PASSED\r\n";
+    [Fact]
+    public void EveryEnabledComponentRequiresActualOperationsAndZeroErrors()
+    {
+        foreach (string test in new[] { "GPGPU", "2D Graphics", "3D Graphics", "Sound", "Video Playback" })
+            Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace(test, "Unexpected"), 0.1, 0).Outcome);
+        Assert.Equal(Outcome.Fail, BurnInAdapter.EvaluateReport(Good.Replace("PASS  0", "PASS  1"), 0.1, 0).Outcome);
+        Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("107 Trillion", "0 Trillion"), 0.1, 0).Outcome);
+        Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good + Good, 0.1, 0).Outcome);
+    }
     [Fact]
     public void ValidOriginalReportAndDurationAreRequired()
     {
@@ -16,6 +25,7 @@ public sealed class BurnInTests
         Assert.Equal(Outcome.Fail, BurnInAdapter.EvaluateReport(Good.Replace("PASSED", "FAILED"), 0.1, 0).Outcome);
         Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport("TEST RUN PASSED", 0.1, 0).Outcome);
         Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("Disk (C:)", "No disk"), 0.1, 2).Outcome);
+        Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("Sound  ", "Other  "), 0.1, 2).Outcome);
         Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("TEST RUN PASSED", ""), 0.1, 0).Outcome);
         Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("Memory (RAM)", "No RAM"), 0.1, 0).Outcome);
         Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("CPU  ", "Other  "), 0.1, 1).Outcome);

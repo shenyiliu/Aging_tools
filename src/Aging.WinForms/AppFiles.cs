@@ -1,4 +1,5 @@
 using Aging.Core;
+using Aging.Windows;
 using System.Text.Json;
 
 namespace Aging.WinForms;
@@ -76,35 +77,36 @@ public sealed class AppFiles
     {
         Options = File.Exists(OptionsPath) ? JsonSerializer.Deserialize<AppOptions>(File.ReadAllBytes(OptionsPath), JsonData.Options) ?? throw new InvalidDataException("设置为空") : new();
         string bundled = FindBundledTools();
-        if (bundled.Length > 0 && (Options.ReferenceRoot.Length == 0 || !Directory.Exists(Options.ReferenceRoot)))
-        {
-            Options.ReferenceRoot = bundled;
-            var found = DiscoverTools(bundled);
-            Options.PwrTestPath = found.Power; Options.VideoPath = found.Video; Options.SftPath = found.Sft;
-            Options.BurnInPath = DiscoverBurnIn(bundled);
-        }
-        else if (bundled.Length > 0 && !Path.GetFullPath(Options.ReferenceRoot).Equals(Path.GetFullPath(bundled), StringComparison.OrdinalIgnoreCase))
+        if (bundled.Length > 0 && (Options.ReferenceRoot.Length == 0 || !Path.GetFullPath(Options.ReferenceRoot).Equals(Path.GetFullPath(bundled), StringComparison.OrdinalIgnoreCase)))
         {
             // Adopt the shipped copy when it is byte-identical to the reference engine.
             // Keep unrelated explicit tool overrides, while moving paths rooted in that suite.
             string oldRoot = Options.ReferenceRoot;
             string oldEngine = DiscoverBurnIn(oldRoot), ownEngine = DiscoverBurnIn(bundled);
-            if (oldEngine.Length > 0 && ownEngine.Length > 0 &&
+            if (oldRoot.Length == 0 || !Directory.Exists(oldRoot) || oldEngine.Length > 0 && ownEngine.Length > 0 &&
                 System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(oldEngine)).AsSpan().SequenceEqual(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(ownEngine))))
             {
                 string MovePath(string path)
                 {
-                    if (path.Length == 0 || !Path.GetFullPath(path).StartsWith(Path.GetFullPath(oldRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return path;
+                    if (path.Length == 0 || oldRoot.Length == 0 || !Path.GetFullPath(path).StartsWith(Path.GetFullPath(oldRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return path;
                     string candidate = Path.Combine(bundled, Path.GetRelativePath(oldRoot, path));
-                    return File.Exists(candidate) ? candidate : path;
+                    return File.Exists(candidate) ? candidate : "";
                 }
                 Options.PwrTestPath = MovePath(Options.PwrTestPath); Options.BurnInPath = MovePath(Options.BurnInPath);
                 Options.VideoPath = MovePath(Options.VideoPath); Options.SftPath = MovePath(Options.SftPath);
+                Options.FurMarkPath = MovePath(Options.FurMarkPath); Options.Mark3DPath = MovePath(Options.Mark3DPath); Options.Mark11Path = MovePath(Options.Mark11Path);
                 Options.ReferenceRoot = bundled;
             }
         }
+        var defaults = DiscoverTools(Options.ReferenceRoot);
+        if (Options.PwrTestPath.Length == 0) Options.PwrTestPath = defaults.Power;
+        if (Options.VideoPath.Length == 0) Options.VideoPath = defaults.Video;
         if (Options.BurnInPath.Length == 0 && Options.ReferenceRoot.Length > 0) Options.BurnInPath = DiscoverBurnIn(Options.ReferenceRoot);
+        if (Options.FurMarkPath.Length == 0) Options.FurMarkPath = GpuEngines.FindFurMark(Options.ReferenceRoot);
+        if (Options.Mark3DPath.Length == 0) Options.Mark3DPath = GpuEngines.FindMark3D(Options.ReferenceRoot, false);
+        if (Options.Mark11Path.Length == 0) Options.Mark11Path = GpuEngines.FindMark3D(Options.ReferenceRoot, true);
         Queue = LegacyConfig.ReadQueue(IniDocument.Load(ConfigPath));
+        SaveOptions();
     }
     public void Save(List<AgingItem> queue, AppOptions options)
     {

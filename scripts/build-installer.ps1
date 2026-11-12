@@ -4,7 +4,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $release = Join-Path $repo 'artifacts\GW_AgingTool_win-x64'
 if (!$SkipPublish) { & (Join-Path $PSScriptRoot 'publish.ps1') -PackagesDirectory $PackagesDirectory; if (!$?) { throw 'Publish failed' } }
 if (!$Compiler) {
-    $choices = @((Join-Path $env:LOCALAPPDATA 'Programs\GW-AgingTool-BuildTools\Inno Setup 7\ISCC.exe'), 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', 'C:\Program Files\Inno Setup 7\ISCC.exe')
+    $choices = @((Join-Path $repo 'artifacts\build-inno\ISCC.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\GW-AgingTool-BuildTools\Inno Setup 7\ISCC.exe'), 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', 'C:\Program Files\Inno Setup 7\ISCC.exe')
     $Compiler = $choices | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 }
 if (!$Compiler -or !(Test-Path -LiteralPath $Compiler)) { throw 'Install Inno Setup 6.3+ or 7 and pass -Compiler <ISCC.exe>.' }

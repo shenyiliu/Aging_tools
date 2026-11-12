@@ -78,6 +78,10 @@ public sealed class WindowsPlatform : ITaskPlatform
         }
         if (item.Kind == TaskKind.BurnIn && !string.IsNullOrWhiteSpace(options.BurnInPath))
             errors.AddRange(BurnInAdapter.Validate(options.BurnInPath, item, false));
+        else if (item.Kind == TaskKind.FurMark && (!string.IsNullOrWhiteSpace(options.FurMarkPath) || !options.Engines.ContainsKey(ProfileKey(item))))
+            errors.AddRange(FurMarkAdapter.Validate(options.FurMarkPath, item));
+        else if (item.Kind == TaskKind.Mark3D && (!string.IsNullOrWhiteSpace(Mark3DAdapter.IsLegacy11(item) ? options.Mark11Path : options.Mark3DPath) || !options.Engines.ContainsKey(ProfileKey(item))))
+            errors.AddRange(Mark3DAdapter.Validate(Mark3DAdapter.IsLegacy11(item) ? options.Mark11Path : options.Mark3DPath, item, options.ReferenceRoot));
         else if (item.IsStress)
         {
             if (!options.Engines.TryGetValue(ProfileKey(item), out var profile)) errors.Add("未配置已验证引擎适配：" + ProfileKey(item));
@@ -180,6 +184,20 @@ public sealed class WindowsPlatform : ITaskPlatform
 
     public async Task<TaskResult> ExecuteAsync(AgingItem item, RunSnapshot run, Action<string> progress, CancellationToken ct)
     {
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            var result = await ExecuteCoreAsync(item, run, progress, ct);
+            return result.Execution == null ? result with { Execution = new("Exited", watch.Elapsed.TotalSeconds, [run.LogDirectory]) } : result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        { return new(Outcome.Aborted, "用户停止，已保留本轮输出") { Execution = new("Cancelled", watch.Elapsed.TotalSeconds, [run.LogDirectory]) }; }
+        catch (Exception e) when (e is IOException or TimeoutException or System.ComponentModel.Win32Exception)
+        { return new(Outcome.Fail, e.Message) { Execution = new(e is TimeoutException ? "TimedOut" : "ExecutionFailed", watch.Elapsed.TotalSeconds, [run.LogDirectory]) }; }
+    }
+
+    private async Task<TaskResult> ExecuteCoreAsync(AgingItem item, RunSnapshot run, Action<string> progress, CancellationToken ct)
+    {
         int index = run.CurrentIndex + 1;
         if (item.Kind == TaskKind.Video)
             return PlayVideoAsync == null ? new(Outcome.Fail, "视频窗口未连接") : await PlayVideoAsync(run.Options.VideoPath, ct);
@@ -201,6 +219,10 @@ public sealed class WindowsPlatform : ITaskPlatform
         if (!item.IsStress) return new(Outcome.Fail, "不支持的执行类型");
         if (item.Kind == TaskKind.BurnIn && !string.IsNullOrWhiteSpace(run.Options.BurnInPath))
             return await BurnInAdapter.ExecuteAsync(item, run, progress, ct);
+        if (item.Kind == TaskKind.FurMark && (!string.IsNullOrWhiteSpace(run.Options.FurMarkPath) || !run.Options.Engines.ContainsKey(ProfileKey(item))))
+            return await FurMarkAdapter.ExecuteAsync(item, run, progress, ct);
+        if (item.Kind == TaskKind.Mark3D && (!string.IsNullOrWhiteSpace(Mark3DAdapter.IsLegacy11(item) ? run.Options.Mark11Path : run.Options.Mark3DPath) || !run.Options.Engines.ContainsKey(ProfileKey(item))))
+            return await Mark3DAdapter.ExecuteAsync(item, run, progress, ct);
         var profile = run.Options.Engines[ProfileKey(item)];
         var replacements = new Dictionary<string, string>
         {
@@ -218,15 +240,16 @@ public sealed class WindowsPlatform : ITaskPlatform
         progress($"{item.Name}，目标 {item.Hours:0.###} 小时");
         var started = DateTime.UtcNow;
         var executed = await runner.RunAsync(profile.Executable, profile.Arguments.Select(Expand), Path.GetDirectoryName(profile.Executable)!,
-            Path.Combine(run.LogDirectory, $"{index}_{item.Name}"), TimeSpan.FromHours(item.Hours) + TimeSpan.FromMinutes(5), ct);
-        if (executed.ExitCode != 0) return new(Outcome.Fail, "引擎退出码：" + executed.ExitCode);
-        if (executed.Elapsed.TotalSeconds < item.Hours * 3600 * 0.95) return new(Outcome.Fail, "引擎提前退出，未完成目标时长");
-        if (!File.Exists(report) || File.GetLastWriteTimeUtc(report) < started.AddSeconds(-2)) return new(Outcome.Uncertain, "缺少本轮有效报告");
+            Path.Combine(run.LogDirectory, $"{index}_{item.Name}"), TimeSpan.FromHours(item.Hours) + TimeSpan.FromMinutes(5), ct, waitForDescendants: true);
+        TaskResult Result(Outcome outcome, string message) => new(outcome, message) { Execution = new("Started", executed.Elapsed.TotalSeconds, [executed.StdoutPath, executed.StderrPath, .. File.Exists(report) ? new[] { report } : Array.Empty<string>()], executed.ExitCode) };
+        if (executed.ExitCode != 0) return Result(Outcome.Fail, "引擎退出码：" + executed.ExitCode);
+        if (executed.Elapsed.TotalSeconds < item.Hours * 3600 * 0.95) return Result(Outcome.Fail, "引擎提前退出，未完成目标时长");
+        if (!File.Exists(report) || File.GetLastWriteTimeUtc(report) < started.AddSeconds(-2)) return Result(Outcome.Uncertain, "缺少本轮有效报告");
         string content = await File.ReadAllTextAsync(report, ct);
         run.Items[run.CurrentIndex].Reports.Add("原始报告：" + report);
-        if (Regex.IsMatch(content, profile.FailPattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2))) return new(Outcome.Fail, "引擎报告包含失败记录");
-        if (!Regex.IsMatch(content, profile.PassPattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2))) return new(Outcome.Uncertain, "报告没有明确通过标记");
-        return new(Outcome.Pass, "目标时长及真实报告判定通过");
+        if (Regex.IsMatch(content, profile.FailPattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2))) return Result(Outcome.Fail, "引擎报告包含失败记录");
+        if (!Regex.IsMatch(content, profile.PassPattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2))) return Result(Outcome.Uncertain, "报告没有明确通过标记");
+        return Result(Outcome.Pass, "目标时长及真实报告判定通过");
     }
 
     public async Task AfterRunAsync(RunSnapshot run, CancellationToken ct)

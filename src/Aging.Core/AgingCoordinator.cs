@@ -141,6 +141,7 @@ public sealed class AgingCoordinator(IRunStore store, ILegacyLogWriter logs, ITa
                         else
                         {
                             var result = await platform.ExecuteAsync(item, run, text => { entry.Message = text; Changed?.Invoke(run); }, linked.Token);
+                            entry.Execution = result.Execution;
                             if (result.Outcome == Outcome.Aborted) { linked.Cancel(); linked.Token.ThrowIfCancellationRequested(); }
                             if (result.Outcome != Outcome.Pass) { FinishItem(result.Outcome, result.Message); break; }
                         }
@@ -188,6 +189,7 @@ public sealed class AgingCoordinator(IRunStore store, ILegacyLogWriter logs, ITa
                         entry.ActiveSeconds = initial + watch.Elapsed.TotalSeconds;
                     }
                     entry.VideoPlays = result.VideoPlays;
+                    entry.Execution = result.Execution;
                     entry.VideoRunSeconds = result.VideoRunSeconds ?? [];
                     if (result.Outcome == Outcome.Aborted) { linked.Cancel(); linked.Token.ThrowIfCancellationRequested(); }
                     FinishItem(result.Outcome, result.Message);

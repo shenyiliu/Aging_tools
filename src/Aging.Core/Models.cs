@@ -101,6 +101,9 @@ public sealed class AppOptions
     public string SnKeyPath { get; set; } = "";
     public string PwrTestPath { get; set; } = "";
     public string BurnInPath { get; set; } = "";
+    public string FurMarkPath { get; set; } = "";
+    public string Mark3DPath { get; set; } = "";
+    public string Mark11Path { get; set; } = "";
     public int HybridSleep { get; set; }
     public Dictionary<string, EngineProfile> Engines { get; set; } = [];
 }
@@ -131,6 +134,7 @@ public sealed class ItemRun
     public List<double> CycleSeconds { get; set; } = [];
     public List<string> Errors { get; set; } = [];
     public List<string> Reports { get; set; } = [];
+    public EngineExecutionInfo? Execution { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public int VideoPlays { get; set; }
@@ -143,6 +147,10 @@ public sealed class RunSnapshot
     public List<string> ExcludedItems { get; set; } = [];
     public int SchemaVersion { get; set; } = 1;
     public long Revision { get; set; }
+    public int ResumeVersion { get; set; }
+    public string ResumeUserSid { get; set; } = "";
+    public string ResumeExecutable { get; set; } = "";
+    public string ResumeDataRoot { get; set; } = "";
     public Guid RunId { get; set; } = Guid.NewGuid();
     public bool Simulation { get; set; } = true;
     public AppOptions Options { get; set; } = new();
@@ -174,7 +182,11 @@ public sealed record PreflightResult(bool CanRun, IReadOnlyList<string> Messages
     public static PreflightResult Success(params string[] messages) => new(true, messages);
     public static PreflightResult Failure(params string[] messages) => new(false, messages);
 }
-public sealed record TaskResult(Outcome Outcome, string Message, int VideoPlays = 0, List<double>? VideoRunSeconds = null);
+public sealed record EngineExecutionInfo(string StartState, double ElapsedSeconds, List<string> RawReports, int? ExitCode = null);
+public sealed record TaskResult(Outcome Outcome, string Message, int VideoPlays = 0, List<double>? VideoRunSeconds = null)
+{
+    public EngineExecutionInfo? Execution { get; init; }
+}
 public sealed record TelemetrySample(DateTimeOffset Time, int Item, double? Temperature, double? CpuPercent, int? BatteryPercent, string Power, string Charge);
 
 public interface IRunStore { void Save(RunSnapshot snapshot); RunSnapshot? Load(); }

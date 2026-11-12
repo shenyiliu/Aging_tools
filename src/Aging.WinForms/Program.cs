@@ -84,11 +84,13 @@ internal static class Program
             var files = new AppFiles(root);
             LegacyRequest? legacy = null;
             if (module is "reboot" or "sleep" or "burnintest" or "furmarktest" or "3dmarktest") legacy = LegacyCommandLine.Parse(module, string.Join(" ", args));
-            using var form = new MainForm(files, args.Contains("--resume"), smoke, legacy);
+            Guid resumeRun = Guid.TryParse(Value("--resume-run", ""), out var resumeId) ? resumeId : Guid.Empty;
+            int resumeVersion = int.TryParse(Value("--resume-version", "0"), out var parsedVersion) ? parsedVersion : 0;
+            using var form = new MainForm(files, args.Contains("--resume"), smoke, legacy, resumeRun, resumeVersion);
             if (args.Contains("--show-dashboard")) form.Shown += (_, _) => form.OpenDashboard();
             if (args.Contains("--settings") || module == "controlpanel") form.Shown += (_, _) => form.OpenSettings();
             if (args.Contains("--logs") || module == "viewlog") form.Shown += (_, _) => form.OpenLogs();
-            if (args.Contains("--compatibility")) form.Shown += (_, _) => { var report = new CompatibilityForm(files); report.Show(form); };
+            if (args.Contains("--compatibility")) form.Shown += (_, _) => form.OpenCompatibility();
             Application.Run(form);
         }
         catch (Exception e)

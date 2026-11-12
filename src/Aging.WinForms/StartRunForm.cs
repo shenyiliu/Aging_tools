@@ -26,6 +26,7 @@ public sealed class StartRunForm : Form
         configured = queue; options = JsonData.Clone(source); results = new PreflightResult?[queue.Count];
         check = checker ?? new WindowsPlatform().CheckItemAsync;
         Ui.Style(this, "开始老化测试 — 选择本轮项目", new Size(900, 640));
+        TopMost = true;
         Ui.Label(this, "勾选本轮要执行的真实测试。检测失败的项目需修复或取消勾选；原保存队列不会被修改。", new(20, 12, 860, 46));
         grid = new DataGridView { Name = "StartupItems", Bounds = new(20, 68, 860, 264), AllowUserToAddRows = false,
             AllowUserToDeleteRows = false, RowHeadersVisible = false, BackgroundColor = Color.White, MultiSelect = false,
@@ -111,7 +112,7 @@ public sealed class StartRunForm : Form
             (omitted.Length == 0 ? "" : $"\r\n本轮不执行（不会判为通过）：{omitted}");
         bool needsResume = RunRequirements.RequiresManualRecovery(items, currentOptions);
         bool needsAdmin = RunRequirements.RequiresAdministrator(items, currentOptions) && !WindowsPlatform.IsAdministrator;
-        resumeHint.Text = needsResume ? "本轮需要在重启后手动续测：进度将保存到检查点。\r\n开机后手动打开工具，点击“恢复任务”；不会配置登录任务或自动登录。" : "本轮无需重启续测。可关闭切项重启，仅运行当前选择的负载或视频项目。";
+        resumeHint.Text = needsResume ? "本轮将在重启后自动续测：进度将保存到检查点。\r\n进入当前 Windows 用户桌面后自动继续；同次开机重开软件不会增加周期。" : "本轮无需重启续测。可关闭切项重启，仅运行当前选择的负载或视频项目。";
         bool blocked = indices.Any(i => results[i]?.CanRun != true);
         status.Text = checking ? "正在检测，请稍候……" : items.Count == 0 ? "请至少勾选一项测试。" : blocked ? "所选项目有未就绪项：请修复、取消该项勾选，或点击“只选可运行项目”。" : needsAdmin ? "所选测试需要管理员权限，请点击下方按钮授权后重新打开。" : "所选项目可开始；点击开始后确认项目和次数，才会执行真实测试。";
         status.ForeColor = blocked || needsAdmin || items.Count == 0 ? Ui.Fail : Ui.Pass;
