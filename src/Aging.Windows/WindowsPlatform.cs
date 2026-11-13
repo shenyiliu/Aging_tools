@@ -16,19 +16,7 @@ public sealed class WindowsPlatform : ITaskPlatform
     public Func<string, CancellationToken, Task<TaskResult>>? PlayVideoAsync { get; set; }
     public Func<CancellationToken, Task<bool>>? ConfirmShutdownAsync { get; set; }
     public Action? BeforeReboot { get; set; }
-    public string BootId
-    {
-        get
-        {
-            var data = new byte[32];
-            // SystemBootEnvironmentInformation supplies a boot GUID, unaffected by wall-clock corrections.
-            int status = NtQuerySystemInformation(90, data, data.Length, out _);
-            if (status != 0) throw new InvalidOperationException("无法读取系统启动标识：" + status);
-            var id = new Guid(data.AsSpan(0, 16));
-            if (id == Guid.Empty) throw new InvalidOperationException("系统启动标识为空");
-            return id.ToString("D");
-        }
-    }
+    public string BootId => WindowsBootIdentity.Read();
     public static bool IsAdministrator
     {
         get { using var identity = WindowsIdentity.GetCurrent(); return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator); }
@@ -110,6 +98,14 @@ public sealed class WindowsPlatform : ITaskPlatform
         return new(errors.Count == 0, errors.Count == 0 ? ["预检通过；硬件行为仍需专机验证"] : errors);
     }
     public static string ProfileKey(AgingItem item) => item.Kind == TaskKind.BurnIn ? $"BurnIn:{item.BurnInMode}" : item.Kind == TaskKind.Mark3D ? "3DMark:" + item.MarkVersion : item.Name;
+    public static string[] PowerArguments(AgingItem item, AppOptions options)
+    {
+        if (item.Kind == TaskKind.CS) return ["/cs", "/c:1", "/d:0", $"/p:{item.SleepSeconds}"];
+        if (item.Kind is not (TaskKind.S3 or TaskKind.S4)) throw new ArgumentException("项目不是睡眠或休眠", nameof(item));
+        // The coordinator already performs the configured countdown. PwrTest accepts
+        // y/n for hybrid sleep, rather than the persisted numeric policy value.
+        return ["/sleep", "/c:1", "/d:0", $"/p:{item.SleepSeconds}", $"/h:{(options.HybridSleep == 0 ? "n" : "y")}", item.Kind == TaskKind.S3 ? "/s:3" : "/s:4"];
+    }
     private static async Task<string> HashAsync(string path, CancellationToken ct)
     { await using var stream = File.OpenRead(path); return Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)); }
 
@@ -187,6 +183,12 @@ public sealed class WindowsPlatform : ITaskPlatform
         var watch = Stopwatch.StartNew();
         try
         {
+            using var awake = PowerRequestSession.Start(item);
+            if (awake != null)
+            {
+                run.Items[run.CurrentIndex].Reports.Add("本轮负载持有 Display/System/Execution 电源请求，执行结束自动释放");
+                progress("已申请保持本轮负载运行，避免空闲睡眠中断测试");
+            }
             var result = await ExecuteCoreAsync(item, run, progress, ct);
             return result.Execution == null ? result with { Execution = new("Exited", watch.Elapsed.TotalSeconds, [run.LogDirectory]) } : result;
         }
@@ -203,13 +205,20 @@ public sealed class WindowsPlatform : ITaskPlatform
             return PlayVideoAsync == null ? new(Outcome.Fail, "视频窗口未连接") : await PlayVideoAsync(run.Options.VideoPath, ct);
         if (item.Kind is TaskKind.S3 or TaskKind.S4 or TaskKind.CS)
         {
-            var args = new List<string> { item.Kind == TaskKind.CS ? "/cs" : "/sleep", "/c:1", $"/p:{item.SleepSeconds}" };
-            if (item.Kind != TaskKind.CS) { args.Add($"/h:{run.Options.HybridSleep}"); args.Add(item.Kind == TaskKind.S3 ? "/s:3" : "/s:4"); }
+            var args = PowerArguments(item, run.Options);
             string work = Path.Combine(run.LogDirectory, $"{index}_{item.Name}_{run.Items[run.CurrentIndex].CompletedCycles + 1}");
             Directory.CreateDirectory(work);
             var start = DateTimeOffset.Now;
             var result = await runner.RunAsync(run.Options.PwrTestPath, args, work, Path.Combine(work, "pwrtest"), TimeSpan.FromSeconds(item.SleepSeconds + 300), ct);
             if (result.ExitCode != 0) return new(Outcome.Fail, "PwrTest 失败，退出码 " + result.ExitCode);
+            if (item.Kind != TaskKind.CS)
+            {
+                var rawEvents = await ReadSleepEventsAsync(start, ct);
+                string evidencePath = Path.Combine(work, "power-events.json");
+                await File.WriteAllTextAsync(evidencePath, System.Text.Json.JsonSerializer.Serialize(rawEvents, JsonData.Options), ct);
+                run.Items[run.CurrentIndex].Reports.Add("系统电源事件原文：" + evidencePath);
+                return SleepEvidence.Evaluate(rawEvents, item.Kind, start, item.SleepSeconds);
+            }
             var evidence = await ReadEventsAsync(start, item.Kind == TaskKind.CS ? "EventID=506 or EventID=507" : "EventID=42 or EventID=1", ct);
             bool entry = evidence.Any(x => x.StartsWith(item.Kind == TaskKind.CS ? "506:" : "42:", StringComparison.Ordinal));
             bool wake = evidence.Any(x => x.StartsWith(item.Kind == TaskKind.CS ? "507:" : "1:", StringComparison.Ordinal));
@@ -293,9 +302,25 @@ public sealed class WindowsPlatform : ITaskPlatform
         }
         return events;
     }, ct);
+    private static Task<List<string>> ReadSleepEventsAsync(DateTimeOffset since, CancellationToken ct) => Task.Run(() =>
+    {
+        string utc = since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+        using var reader = new EventLogReader(new EventLogQuery("System", PathType.LogName,
+            $"*[System[TimeCreated[@SystemTime>='{utc}'] and (EventID=42 or EventID=1)]]"));
+        var events = new List<string>();
+        while (reader.ReadEvent() is { } record)
+        {
+            using (record)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (record.ProviderName is "Microsoft-Windows-Kernel-Power" or "Microsoft-Windows-Power-Troubleshooter") events.Add(record.ToXml());
+            }
+            if (events.Count >= 1000) throw new IOException("本轮电源事件数量超过上限");
+        }
+        return events;
+    }, ct);
     [StructLayout(LayoutKind.Sequential)] private struct MemoryStatus
     { public uint Length, MemoryLoad; public ulong TotalPhysical, AvailPhysical, TotalPageFile, AvailPageFile, TotalVirtual, AvailVirtual, AvailExtendedVirtual; }
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
-    [DllImport("ntdll.dll")] private static extern int NtQuerySystemInformation(int infoClass, byte[] information, int length, out int returnLength);
     [DllImport("powrprof.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool GetPwrCapabilities(byte[] capabilities);
 }

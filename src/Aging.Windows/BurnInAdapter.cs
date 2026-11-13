@@ -14,7 +14,7 @@ public static class BurnInAdapter
 {
     public const string SupportedVersion = "9.2.1006.0";
     private static readonly string[] ConfigurationHashes = ["48EB7D4683AF20EF0FC3B0EFC23F6DD743DE9CDAC3D44A78538F97BB065683BA", "5C3C8791B2E713178CF8700C46DE458D8CE3DBF33E1DEE58EF56B86586DB275A", "EAC93341EF73CA3FDFA8867343EDEBDF76FE55FDDC9102FC8FA4E463F048ED71"];
-    public static string Configuration(string executable, int mode) => Path.Combine(Path.GetDirectoryName(executable) ?? "", $"LastUsed_{mode}.bitcfg");
+    public static string Configuration(string executable, int mode) => Path.Combine(Path.GetDirectoryName(executable) ?? "", $"LastUsed_{(mode == 3 ? 0 : mode)}.bitcfg");
     public static IReadOnlyList<string> Validate(string executable, AgingItem item, bool requireAdministrator = true)
     {
         var errors = new List<string>();
@@ -22,11 +22,11 @@ public static class BurnInAdapter
         if (requireAdministrator && !WindowsPlatform.IsAdministrator) errors.Add("BurnInTest 引擎要求管理员权限，请使用面板的“以管理员重新启动”");
         if (FileVersionInfo.GetVersionInfo(executable).FileVersion != SupportedVersion) errors.Add("内置 BurnIn 适配只支持文件版本 " + SupportedVersion);
         if (!File.Exists(Configuration(executable, item.BurnInMode))) errors.Add("缺少测试模式配置：" + Configuration(executable, item.BurnInMode));
-        else if (!Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Configuration(executable, item.BurnInMode)))).Equals(ConfigurationHashes[item.BurnInMode], StringComparison.OrdinalIgnoreCase))
+        else if (!Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Configuration(executable, item.BurnInMode)))).Equals(ConfigurationHashes[item.BurnInMode == 3 ? 0 : item.BurnInMode], StringComparison.OrdinalIgnoreCase))
             errors.Add("BurnIn 模式配置与已恢复的原版配置不一致，无法核对启用测试项目");
         return errors;
     }
-    public static string CreateScript(string configuration, string report, double hours)
+    public static string CreateScript(string configuration, string report, double hours, int mode = 0)
     {
         static string Quote(string path)
         {
@@ -39,7 +39,8 @@ public static class BurnInAdapter
             "SETPOSTTEST AUTO_STOP_F NORMAL MAN_STOP_F NORMAL RESULT_F NO\r\n" +
             $"SETLOG LOG YES NAME {Quote(report)} PREFIX \"\" TIME NO REPORT TEXT LOGLEVEL YES TRACELEVEL NO SUM NO FILE NEW LINES 100000\r\n" +
             "SETCYCLES 0\r\n" +
-            "SETDURATION " + (hours * 60).ToString("0.########", CultureInfo.InvariantCulture) + "\r\nRUN CONFIG\r\nEXIT\r\n";
+            "SETDURATION " + (hours * 60).ToString("0.########", CultureInfo.InvariantCulture) + "\r\n" +
+            (mode == 3 ? "SETRAM TYPE standard PATTERN cyclic PRETEST no LOG yes\r\nSETDUTYCYCLE MEMORY 100\r\nRUN MEMORY\r\n" : "RUN CONFIG\r\n") + "EXIT\r\n";
     }
     public static TaskResult EvaluateReport(string content, double hours, int mode)
     {
@@ -63,9 +64,13 @@ public static class BurnInAdapter
             1 => ["CPU", "Memory (RAM)", "2D Graphics", "3D Graphics", "Sound", "Video Playback", "Disk"],
             // The frozen original disk configuration also enables Sound, confirmed by its raw report.
             2 => ["Sound", "Disk"],
+            3 => ["Memory (RAM)"],
             _ => []
         };
         if (required.Length == 0) return new(Outcome.Uncertain, "未知 BurnIn 模式");
+        // Temperature is a diagnostic sensor row, not an additional stress load.
+        if (mode == 3 && rows.Any(row => row.Groups["name"].Value.Trim() is not ("Memory (RAM)" or "Temperature")))
+            return new(Outcome.Uncertain, "DDR 独立测试报告包含其他负载，无法确认仅执行内存测试");
         foreach (string test in required)
         {
             var selected = rows.Where(row => test == "Disk" ? row.Groups["name"].Value.Trim().StartsWith("Disk (", StringComparison.Ordinal) : row.Groups["name"].Value.Trim() == test).ToList();
@@ -120,7 +125,7 @@ public static class BurnInAdapter
         // The old engine writes BIT_log.log and LastUsed.bitcfg even with scripted logging.
         // Run a private copy so its writes and helper executables stay outside the reference suite.
         string copiedExe = CreateEngineCopy(run.Options.BurnInPath, config, work, ct);
-        string commands = CreateScript(config, report, item.Hours);
+        string commands = CreateScript(config, report, item.Hours, item.BurnInMode);
         await File.WriteAllTextAsync(script, commands, Encoding.ASCII, ct);
         File.Copy(config, Path.Combine(output, "selected-mode.bitcfg"));
         await File.WriteAllTextAsync(Path.Combine(output, "executed.bits"), commands, Encoding.UTF8, ct);

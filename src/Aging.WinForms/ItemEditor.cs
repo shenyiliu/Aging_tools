@@ -48,7 +48,7 @@ public sealed class ItemEditor : Form
         else if (name == "BurnIn")
         {
             Field("时间 (小时)", hours, 20, 30, 80, 180);
-            mode = Choice("", ["综合", "综合(DX9)", "硬盘"], new[] { "综合", "综合(DX9)", "硬盘" }[this.original.BurnInMode], 20, 72, 80, 180);
+            mode = Choice("", AgingItem.BurnInModeNames, AgingItem.BurnInModeNames[this.original.BurnInMode], 20, 72, 80, 180);
         }
         else if (name is "3DMark" or "FurMark")
         {
@@ -76,7 +76,8 @@ public sealed class ItemEditor : Form
         {
             "Reboot" => $"Reboot|{Math.Clamp(Int("Cycles", 50), 1, 100000)}|{Math.Clamp(Int("Delay", 30), 30, 86400)}|{Bool("HWCheck")}|{Bool("TimeCheck")}|{Bool("WifiCheck")}|{Get("FANCheck", "N")}",
             "S3" or "S4" or "CS" => $"{name}|{Math.Clamp(Int("Cycles", 50), 1, 100000)}|{Math.Clamp(Int("Delay", 60), 30, 86400)}|{Math.Clamp(Int("SleepTime", 60), 60, 86400)}|{Bool("HWCheck")}|{Bool("TimeCheck")}|{Bool("WifiCheck")}",
-            "BurnIn" => $"BurnIn|{Duration().ToString(CultureInfo.InvariantCulture)}|{Math.Clamp(Int("TestMode", 0), 0, 2)}",
+            "BurnIn" => $"BurnIn|{Duration().ToString(CultureInfo.InvariantCulture)}|{Math.Clamp(Int("TestMode", 0), 0, 3)}",
+            "DDR Test" => $"BurnIn|{Duration().ToString(CultureInfo.InvariantCulture)}|3",
             "FurMark" => $"FurMark|1|{Get("Anti-aliasing", "8X")}|{Get("Resolution", "1920x1080")}|N",
             "3DMark" => $"3DMark|1|{Get("Version", "3DMarkV2_AllItem")}|{Get("Resolution", "1920x1080")}|N",
             _ => "Video"

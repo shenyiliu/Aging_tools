@@ -13,7 +13,7 @@ if (!(Test-Path -LiteralPath $setup -PathType Leaf)) { throw 'Installer not foun
 $staging = Join-Path $repo ('artifacts\zip-staging-' + $version + '-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $staging | Out-Null
 Copy-Item -LiteralPath $setup -Destination $staging
-foreach ($name in @('ZIP安装说明.md', '安装与多机型部署.md', '重装原版组件复查_20261110.md', '0.2.2修复与验收记录.md', '0.2.4安装错误32修复记录.md', '0.2.5登录逻辑移除与启动修复.md', '0.2.6组件补齐与打包记录.md', '0.3.0修复与验收记录.md', '原版老化行为对照_20261112.md')) {
+foreach ($name in @('ZIP安装说明.md', '安装与多机型部署.md', '重装原版组件复查_20261110.md', '0.2.2修复与验收记录.md', '0.2.4安装错误32修复记录.md', '0.2.5登录逻辑移除与启动修复.md', '0.2.6组件补齐与打包记录.md', '0.3.0修复与验收记录.md', '原版老化行为对照_20261112.md', '目标机测试与修复_20261113.md')) {
     Copy-Item -LiteralPath (Join-Path $repo ('docs\' + $name)) -Destination $staging
 }
 Get-ChildItem -LiteralPath $staging -File | Sort-Object Name | ForEach-Object {

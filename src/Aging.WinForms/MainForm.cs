@@ -29,6 +29,7 @@ public sealed class MainForm : Form
     private MaximumVolumeSession? maximumVolume;
     private bool exiting;
     private bool preparingRun;
+    private bool resourcesDisposed;
     private readonly string? smokeDirectory;
     private readonly bool resumeOnStart;
     private readonly Guid requestedResumeRun;
@@ -41,7 +42,7 @@ public sealed class MainForm : Form
         FormBorderStyle = FormBorderStyle.None; MinimumSize = Size.Empty; ClientSize = new(446, 71); ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
         platform = new WindowsPlatform(); store = new JsonRunStore(files.CheckpointPath);
         Coordinator = new AgingCoordinator(store, logs, new HostPlatform(platform, new WorkerBridge(Program.MainExecutable)));
-        Coordinator.Changed += run => { dashboard?.UpdateState(); UpdatePopup(); UpdateToolbar(); UpdatePowerWindow(run); };
+        Coordinator.Changed += CoordinatorChanged;
         platform.PlayVideoAsync = (path, ct) => { using var video = new VideoForm(path, Path.Combine(Files.Options.ReferenceRoot, "Other", "ICON")); return Task.FromResult(video.Play(dashboard is { Visible: true } ? dashboard : this, ct)); };
         platform.ConfirmShutdownAsync = ConfirmShutdownAsync;
         platform.BeforeReboot = () =>
@@ -148,6 +149,11 @@ public sealed class MainForm : Form
     private void IconButton(string image, string hint, Rectangle bounds, EventHandler click)
     { var b = ImageButton(image, image.Replace('1', '2'), "", bounds, click); b.AccessibleName = hint; var tooltip = new ToolTip(); tooltip.SetToolTip(b, hint); componentsTooltips.Add(tooltip); }
     private readonly List<ToolTip> componentsTooltips = [];
+    private void CoordinatorChanged(RunSnapshot run)
+    {
+        if (resourcesDisposed || Disposing || IsDisposed) return;
+        dashboard?.UpdateState(); UpdatePopup(); UpdateToolbar(); UpdatePowerWindow(run);
+    }
     private void UpdateToolbar()
     {
         var run = Coordinator.Current;
@@ -288,7 +294,7 @@ public sealed class MainForm : Form
                 identity.BindTo(run); LogonResume.Register(identity); store.Save(run);
                 logs.Event(run, "INFO", "已注册并验证当前用户自动续测任务：" + identity.TaskName);
             }
-            bool waitingForStart = run.Options.AgingInNextBoot && !run.InitialBootCompleted && (run.Phase != RunPhase.AwaitingReboot || platform.BootId == run.ExpectedBootId);
+            bool waitingForStart = run.Options.AgingInNextBoot && !run.InitialBootCompleted && (run.Phase != RunPhase.AwaitingReboot || !BootSession.HasChanged(run.ExpectedBootId, platform.BootId));
             await using var provider = waitingForStart ? null : CoreTempSession.Start(run, message => logs.Event(run, "INFO", message));
             using var volume = MaximumVolumeSession.Start(!run.Simulation && !waitingForStart && run.Options.TestWithMaxVolume, message => logs.Event(run, "INFO", message));
             maximumVolume = volume;
@@ -324,8 +330,14 @@ public sealed class MainForm : Form
         {
             var run = Coordinator.Current ?? throw new InvalidOperationException("没有可恢复任务");
             if (run.IsTerminal || Coordinator.Busy) throw new InvalidOperationException("当前任务不能恢复");
-            if (run.Phase == RunPhase.AwaitingReboot && !run.Simulation && platform.BootId == run.ExpectedBootId)
-            { MessageBox.Show(dashboard, "尚未发生真实重启，周期保持不变。请重启专用测试机后续测，或终止此任务。", "等待系统重启"); return; }
+            if (run.Phase == RunPhase.AwaitingReboot && !run.Simulation)
+            {
+                string bootId = platform.BootId;
+                if (!BootSession.CanCompare(run.ExpectedBootId, bootId))
+                    throw new InvalidOperationException("启动标识缺失或格式已升级，旧检查点不能自动计数；请保留日志并新建测试任务");
+                if (!BootSession.HasChanged(run.ExpectedBootId, bootId))
+                { MessageBox.Show(dashboard, "尚未发生真实重启，周期保持不变。请重启专用测试机后续测，或终止此任务。", "等待系统重启"); return; }
+            }
             await ExecuteCoordinatorAsync(run, true);
         }
         catch (Exception e) { Ui.Error(this, e); }
@@ -441,11 +453,22 @@ public sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && !resourcesDisposed)
         {
+            resourcesDisposed = true;
+            Coordinator.Changed -= CoordinatorChanged;
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged;
             timer.Dispose(); telemetry.Dispose(); popup.Dispose(); powerWindow?.Dispose(); compatibilityWindow?.Dispose(); tray.Dispose(); menu.Dispose();
-            foreach (var image in images) image.Dispose(); foreach (var tooltip in componentsTooltips) tooltip.Dispose();
+            foreach (var tooltip in componentsTooltips) tooltip.Dispose();
+            // Destroy the buttons before releasing their shared backgrounds. Disposing a
+            // visible form can pump paint/mouse messages while its controls still exist.
+            try { base.Dispose(true); }
+            finally
+            {
+                foreach (var image in images) image.Dispose();
+                images.Clear(); imageCache.Clear();
+            }
+            return;
         }
         base.Dispose(disposing);
     }

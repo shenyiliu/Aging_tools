@@ -29,9 +29,8 @@ internal static class Program
         {
             try
             {
-                var options = new AppOptions();
                 string data = Value("--data", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GW.AgingTool"));
-                if (File.Exists(Path.Combine(data, "options.json"))) options = System.Text.Json.JsonSerializer.Deserialize<AppOptions>(File.ReadAllBytes(Path.Combine(data, "options.json")), JsonData.Options) ?? options;
+                var options = AppFiles.ReadOptionsForInspection(data);
                 var report = Aging.Windows.MachineCompatibility.CaptureAsync(options).GetAwaiter().GetResult();
                 Aging.Windows.MachineCompatibility.Save(report, Value("--compatibility-report", Path.Combine(data, "compatibility", "latest.json")));
             }

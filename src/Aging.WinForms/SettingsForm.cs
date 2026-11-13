@@ -27,7 +27,7 @@ public sealed class SettingsForm : Form
         list.Bounds = new(12, 44, 574, 212); list.Columns.Add("No.", 40); list.Columns.Add("老化项目", 108); list.Columns.Add("时间 / 次数", 90); list.Columns.Add("倒计时 / 子项", 180); list.Columns.Add("", 144);
         list.Font = new Font("Microsoft YaHei", 10F); list.ShowItemToolTips = true;
         aging.Controls.Add(list); list.DoubleClick += (_, _) => Edit();
-        foreach (string name in new[] { "BurnIn", "Reboot", "CS", "S3", "S4", "3DMark", "FurMark", "Video" })
+        foreach (string name in new[] { "BurnIn", "DDR Test", "Reboot", "CS", "S3", "S4", "3DMark", "FurMark", "Video" })
         { string selected = name; addMenu.Items.Add(name == "BurnIn" ? "BurnInTest" : name == "Reboot" ? "REBOOT" : name, null, (_, _) => Add(selected)); }
         addMenu.Opening += (_, _) => addMenu.Items[^1].Enabled = !queue.Any(x => x.Kind == TaskKind.Video);
         var addButton = Ui.Button(aging, "+", new(590, 44, 26, 26), (_, _) => { });
@@ -39,7 +39,7 @@ public sealed class SettingsForm : Form
         Ui.Button(aging, "↓", new(590, 230, 26, 26), (_, _) => MoveItem(1));
         var menu = new ContextMenuStrip();
         var create = new ToolStripMenuItem("新建");
-        foreach (string name in new[] { "BurnIn", "Reboot", "CS", "S3", "S4", "3DMark", "FurMark", "Video" })
+        foreach (string name in new[] { "BurnIn", "DDR Test", "Reboot", "CS", "S3", "S4", "3DMark", "FurMark", "Video" })
         { string selected = name; create.DropDownItems.Add(name == "BurnIn" ? "BurnInTest" : name, null, (_, _) => Add(selected)); }
         menu.Items.Add(create); menu.Items.Add("编辑", null, (_, _) => Edit()); menu.Items.Add("删除", null, (_, _) => Delete()); menu.Items.Add("删除所有", null, (_, _) => DeleteAll()); menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("上移", null, (_, _) => MoveItem(-1)); menu.Items.Add("下移", null, (_, _) => MoveItem(1));
@@ -95,7 +95,7 @@ public sealed class SettingsForm : Form
         {
             var item = queue[i];
             string first = item.IsPower ? item.Cycles.ToString() : item.IsStress ? item.Hours.ToString("0.##") : "";
-            string second = item.IsPower ? item.DelaySeconds.ToString() : item.Kind == TaskKind.BurnIn ? new[] { "综合", "综合(DX9)", "硬盘" }[item.BurnInMode] : item.Kind == TaskKind.Mark3D ? item.MarkVersion : item.Kind == TaskKind.FurMark ? item.Msaa : "";
+            string second = item.IsPower ? item.DelaySeconds.ToString() : item.Kind == TaskKind.BurnIn ? AgingItem.BurnInModeNames[item.BurnInMode] : item.Kind == TaskKind.Mark3D ? item.MarkVersion : item.Kind == TaskKind.FurMark ? item.Msaa : "";
             string third = item.Kind is TaskKind.S3 or TaskKind.S4 or TaskKind.CS ? item.SleepSeconds.ToString() : item.Kind is TaskKind.FurMark or TaskKind.Mark3D ? item.Resolution : "";
             var row = new ListViewItem([(i + 1).ToString(), item.Name, first, second, third]) { ToolTipText = item.Serialize() };
             list.Items.Add(row); if (i == select) row.Selected = true;

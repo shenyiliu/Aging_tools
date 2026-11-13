@@ -4,7 +4,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $version = ([xml](Get-Content -LiteralPath (Join-Path $repo 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version
 $baseName = 'GMK_AgingTool_Setup_' + $version + '_win-x64'
 if (!$ZipPath) { $ZipPath = Join-Path $repo ('artifacts\installer\' + $baseName + '.zip') }
-$expectedNames = @(($baseName + '.exe'), 'ZIP安装说明.md', '安装与多机型部署.md', '重装原版组件复查_20261110.md', '0.2.2修复与验收记录.md', '0.2.4安装错误32修复记录.md', '0.2.5登录逻辑移除与启动修复.md', '0.2.6组件补齐与打包记录.md', '0.3.0修复与验收记录.md', '原版老化行为对照_20261112.md', 'SHA256SUMS.txt')
+$expectedNames = @(($baseName + '.exe'), 'ZIP安装说明.md', '安装与多机型部署.md', '重装原版组件复查_20261110.md', '0.2.2修复与验收记录.md', '0.2.4安装错误32修复记录.md', '0.2.5登录逻辑移除与启动修复.md', '0.2.6组件补齐与打包记录.md', '0.3.0修复与验收记录.md', '原版老化行为对照_20261112.md', '目标机测试与修复_20261113.md', 'SHA256SUMS.txt')
 $outerHash = (Get-Content -LiteralPath ($ZipPath + '.sha256') -Raw).Trim()
 if ($outerHash -notmatch '^([a-f0-9]{64})  (.+)$' -or $Matches[2] -ne [IO.Path]::GetFileName($ZipPath)) { throw 'Invalid ZIP checksum record' }
 if ((Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash -ne $Matches[1]) { throw 'ZIP checksum mismatch' }

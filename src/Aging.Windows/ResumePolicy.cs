@@ -85,7 +85,9 @@ public static class ResumePolicy
             run.OperationId == Guid.Empty || run.OperationStartedAt == null) return new(false, "检查点缺少有效的待续测系统动作");
         if (run.PendingOperation == "cycle" && run.Items[run.CurrentIndex].Item.Kind != TaskKind.Reboot)
             return new(false, "检查点周期类型与待恢复动作不匹配");
-        if (string.IsNullOrWhiteSpace(bootId) || string.IsNullOrWhiteSpace(run.ExpectedBootId) || bootId == run.ExpectedBootId)
+        if (!BootSession.CanCompare(run.ExpectedBootId, bootId))
+            return new(false, "启动标识缺失或格式已升级，旧检查点不能自动计数；请保留日志并新建测试任务");
+        if (!BootSession.HasChanged(run.ExpectedBootId, bootId))
             return new(false, "仍是同次 Windows 启动，重开程序不会增加周期");
         return new(true, "登录后恢复已绑定任务，检测到新的 Windows 启动标识");
     }

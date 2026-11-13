@@ -10,6 +10,15 @@ public sealed class PlatformTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "gw-aging-platform", Guid.NewGuid().ToString("N"));
     private readonly string probe = Path.Combine(AppContext.BaseDirectory, "probe", "Aging.Probe.exe");
     public PlatformTests() => Directory.CreateDirectory(root);
+    [Theory]
+    [InlineData("S3", 0, "/s:3", "/h:n")]
+    [InlineData("S4", 1, "/s:4", "/h:y")]
+    public void SleepArgumentsUsePwrTestBooleanSyntaxAndOnlyOneCountdown(string kind, int hybrid, string state, string policy)
+    {
+        var args = WindowsPlatform.PowerArguments(AgingItem.Parse($"{kind}|1|30|60|N|N|N"), new AppOptions { HybridSleep = hybrid });
+        Assert.Contains(state, args); Assert.Contains(policy, args); Assert.Contains("/d:0", args); Assert.Contains("/p:60", args);
+        Assert.DoesNotContain("/h:0", args); Assert.DoesNotContain("/h:1", args);
+    }
     [Fact]
     public async Task VideoAdapterReturnsExecutionEvidenceForResultAndCancellation()
     {

@@ -2,8 +2,12 @@ param([switch]$Hardware, [switch]$SkipBuild, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repo 'tests\Aging.E2E\Aging.E2E.csproj'
+$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+$sdk = if ($dotnet) { $dotnet.Source } else { Join-Path $env:LOCALAPPDATA 'Programs\dotnet\dotnet.exe' }
+if (!(Test-Path -LiteralPath $sdk)) { throw 'Install .NET SDK 10 first.' }
+$env:DOTNET_ROOT = Split-Path -Parent $sdk
 if (!$SkipBuild) {
-    & dotnet build $project -c Release --nologo
+    & $sdk build $project -c Release --nologo
     if ($LASTEXITCODE -ne 0) { throw 'E2E build failed' }
 }
 if (!$OutputDirectory) { $OutputDirectory = Join-Path $repo ('artifacts\verification\e2e-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6)) }

@@ -28,6 +28,7 @@ public sealed record AgingItem
     public bool WindowMode { get; init; } = true;
     public string MarkVersion { get; init; } = "3DMarkV2_AllItem";
     public string Name => Kind == TaskKind.Mark3D ? "3DMark" : Kind.ToString();
+    public static readonly string[] BurnInModeNames = ["综合", "综合(DX9)", "硬盘", "DDR Test（内存）"];
     public bool IsPower => Kind is TaskKind.Reboot or TaskKind.S3 or TaskKind.S4 or TaskKind.CS;
     public bool IsStress => Kind is TaskKind.BurnIn or TaskKind.FurMark or TaskKind.Mark3D;
 
@@ -70,7 +71,7 @@ public sealed record AgingItem
             throw new FormatException("睡眠时间必须为 30–86400 秒（新建项目至少 60 秒）");
         if (IsStress && (!double.IsFinite(Hours) || Hours < 0.1 || Hours > 10000))
             throw new FormatException("压力测试时长必须为 0.1–10000 小时");
-        if (Kind == TaskKind.BurnIn && BurnInMode is < 0 or > 2) throw new FormatException("BurnIn 模式必须为 0/1/2");
+        if (Kind == TaskKind.BurnIn && BurnInMode is < 0 or > 3) throw new FormatException("BurnIn 模式必须为 0/1/2/3（DDR 内存）");
         if (FanProfile is not ("N" or "IP3" or "WB" or "Ed")) throw new FormatException("未知风扇方案");
         if (IsStress && !System.Text.RegularExpressions.Regex.IsMatch(Resolution, @"^\d{3,5}x\d{3,5}$"))
             throw new FormatException("分辨率格式应为 1920x1080");

@@ -28,7 +28,7 @@ public static class LogonResume
                 new XElement(ns + "IdleSettings", new XElement(ns + "StopOnIdleEnd", false), new XElement(ns + "RestartOnIdle", false)),
                 new XElement(ns + "AllowStartOnDemand", true), new XElement(ns + "Enabled", true),
                 new XElement(ns + "Hidden", false), new XElement(ns + "RunOnlyIfIdle", false),
-                new XElement(ns + "WakeToRun", false), new XElement(ns + "ExecutionTimeLimit", "PT0S"), new XElement(ns + "Priority", 7)),
+                new XElement(ns + "WakeToRun", false), new XElement(ns + "ExecutionTimeLimit", "PT0S"), new XElement(ns + "Priority", 4)),
             new XElement(ns + "Actions", new XAttribute("Context", "CurrentUser"), new XElement(ns + "Exec",
                 new XElement(ns + "Command", identity.Executable), new XElement(ns + "Arguments", identity.Arguments),
                 new XElement(ns + "WorkingDirectory", Path.GetDirectoryName(identity.Executable)!)))));

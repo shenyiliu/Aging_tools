@@ -39,7 +39,7 @@ Copy-Item -LiteralPath (Join-Path $repo 'docs\0.2.2修复与验收记录.md') -D
 Copy-Item -LiteralPath (Join-Path $repo 'docs\0.2.4安装错误32修复记录.md') -Destination $OutputDirectory -Force
 Copy-Item -LiteralPath (Join-Path $repo 'docs\0.2.5登录逻辑移除与启动修复.md') -Destination $OutputDirectory -Force
 Copy-Item -LiteralPath (Join-Path $repo 'docs\0.2.6组件补齐与打包记录.md') -Destination $OutputDirectory -Force
-foreach ($name in @('0.3.0修复与验收记录.md', '原版老化行为对照_20261112.md')) {
+foreach ($name in @('0.3.0修复与验收记录.md', '原版老化行为对照_20261112.md', '目标机测试与修复_20261113.md')) {
     Copy-Item -LiteralPath (Join-Path $repo ('docs\' + $name)) -Destination $OutputDirectory -Force
 }
 Copy-Item -LiteralPath (Join-Path $repo 'src\Aging.WinForms\Branding') -Destination $OutputDirectory -Recurse -Force
@@ -121,6 +121,8 @@ foreach ($alias in @('Other\ControlPanel.exe','Other\ViewLOG.exe','Reboot\Reboot
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $aliasPath) | Out-Null
     [Microsoft.NET.HostModel.AppHost.HostWriter]::CreateAppHost($hostTemplate.FullName, $aliasPath, '..\Test.dll', $true, (Join-Path $OutputDirectory 'Test.exe'), $false, $false, $null)
 }
+& (Join-Path $PSScriptRoot 'verify-admin-manifest.ps1') -ReleaseDirectory $OutputDirectory | Out-Host
+if (!$?) { throw 'Published administrator manifest verification failed' }
 # Preserve the supplied component copies and their manifests, including separate reference backups.
 Get-ChildItem -LiteralPath $OutputDirectory -File -Recurse | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
     $relative = [IO.Path]::GetRelativePath($OutputDirectory, $_.FullName)

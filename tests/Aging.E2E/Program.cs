@@ -19,6 +19,14 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         output = Path.GetFullPath(args.Length > 0 ? args[0] : "e2e-results"); Directory.CreateDirectory(output);
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, error) =>
+        {
+            results.Add(new { Case = "UnhandledUiFailure", Passed = false, Error = error.Exception.ToString() });
+            File.WriteAllText(Path.Combine(output, "ui-thread-exception.txt"), error.Exception.ToString());
+            File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
+            Environment.Exit(1);
+        };
         if (args.Contains("--files-only"))
         {
             try { AppFilesMigrationRegressions(); }
@@ -31,6 +39,9 @@ internal static class Program
         {
             try
             {
+                if (args.Contains("--compatibility-only")) { await CompatibilityReportRegressionsAsync(); return; }
+                int powerAt = Array.IndexOf(args, "--power-item");
+                if (powerAt >= 0) { await PowerThroughStartupAsync(args[powerAt + 1]); return; }
                 if (args.Contains("--gpu-only")) { await ThroughStartupAsync("real-furmark-six-minute", TaskKind.FurMark, false, true); return; }
                 if (args.Contains("--hardware-only"))
                 {
@@ -40,6 +51,10 @@ internal static class Program
                     return;
                 }
                 AppFilesMigrationRegressions();
+                await CompatibilityReportRegressionsAsync();
+                ToolbarImagesSurviveControlDisposal();
+                DdrEditorAndQueueRoundTrip();
+                await BootIdentityRegressionAsync();
                 await StartupSelectionAsync();
                 await DependencyPreviewWithoutLoginAsync();
                 await ReopenModelessWindowsAsync();
@@ -68,6 +83,121 @@ internal static class Program
         using var bitmap = new Bitmap(form.Width, form.Height); form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size)); bitmap.Save(Path.Combine(output, name));
     }
     private static List<AgingItem> DefaultQueue() => [AgingItem.Parse("Reboot|1|30|N|N|N|N"), AgingItem.Parse("S3|1|30|60|N|N|N"), AgingItem.Parse("BurnIn|0.1|0"), AgingItem.Parse("S4|1|30|60|N|N|N"), AgingItem.Parse("Video")];
+
+    private static void ToolbarImagesSurviveControlDisposal()
+    {
+        var owner = new MainForm(Files("toolbar-image-lifetime"));
+        int observed = 0;
+        foreach (var button in owner.Controls.OfType<Button>())
+        {
+            if (button.BackgroundImage is not { } image) continue;
+            button.Disposed += (_, _) => { _ = image.Flags; observed++; };
+        }
+        owner.Dispose(); owner.Dispose();
+        Require(observed > 0, "Toolbar image regression must exercise actual background images");
+        results.Add(new { Case = "ToolbarImagesRemainValidUntilTheirControlsAreDisposed", Passed = true, CheckedControls = observed });
+    }
+
+    private static void DdrEditorAndQueueRoundTrip()
+    {
+        var files = Files("ddr-configuration");
+        var item = ItemEditor.CreateDefault("DDR Test", files.ConfigPath);
+        Require(item.Kind == TaskKind.BurnIn && item.BurnInMode == 3, "DDR menu must create the dedicated memory mode");
+        using var editor = new ItemEditor(item, files.ConfigPath);
+        editor.Show(shell);
+        Require(editor.Controls.OfType<ComboBox>().Single().SelectedIndex == 3, "DDR editor did not select memory mode");
+        editor.Controls.OfType<Button>().Single(x => x.Text == "保存").PerformClick();
+        Require(editor.Result?.BurnInMode == 3, "Saving DDR editor changed its mode");
+        files.Save([editor.Result!], files.Options); files.Reload();
+        Require(files.Queue.Single().BurnInMode == 3 && StartRunForm.Describe(files.Queue[0]).Contains("DDR"), "DDR mode must survive queue persistence and be identified at startup");
+        using var settings = new SettingsForm(files);
+        Require(settings.Controls.Count > 0, "DDR queue failed to render in settings");
+        results.Add(new { Case = "DdrEditorAndQueueRoundTrip", Passed = true, PhysicalActions = false });
+    }
+
+    private static async Task BootIdentityRegressionAsync()
+    {
+        string xml = WindowsBootIdentity.ReadEvent();
+        string actual = WindowsBootIdentity.FromEvent(xml);
+        Require(new WindowsPlatform().BootId == actual, "Boot identity must be stable in the current boot");
+        File.WriteAllText(Path.Combine(output, "current-kernel-start.xml"), xml);
+        string Event(long record, string time) => $"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Kernel-General'/><EventID>12</EventID><EventRecordID>{record}</EventRecordID></System><EventData><Data Name='StartTime'>{time}</Data></EventData></Event>";
+        string before = WindowsBootIdentity.FromEvent(Event(100, "2026-11-13T01:03:28Z"));
+        string after = WindowsBootIdentity.FromEvent(Event(200, "2026-11-13T03:01:59Z"));
+        Require(BootSession.HasChanged(before, after) && !BootSession.HasChanged(after, after), "Only a new kernel start may change boot identity");
+        Require(!BootSession.CanCompare("c30debed-de3b-11f1-81f7-ecc34bd5b6db", actual), "Old GUID checkpoints cannot be counted after a format upgrade");
+        Require(!BootSession.HasChanged("", actual) && !BootSession.HasChanged(BootSession.EventPrefix + "broken", actual), "Missing or malformed identity must fail closed");
+        try { WindowsBootIdentity.FromEvent(xml.Replace("Microsoft-Windows-Kernel-General", "Other-Provider")); throw new InvalidOperationException("Wrong provider was accepted"); }
+        catch (IOException) { }
+        foreach (var scenario in new[] { (Name: "same", Previous: after, Count: 0), (Name: "changed", Previous: before, Count: 1), (Name: "legacy", Previous: "old-guid", Count: 0) })
+        {
+            string root = Path.Combine(output, "boot-recovery-" + scenario.Name);
+            var run = AgingCoordinator.Create([AgingItem.Parse("Reboot|1|30|N|N|N|N")], new AppOptions { SwitchReboot = false }, false, Path.Combine(root, "logs"));
+            run.Phase = RunPhase.AwaitingReboot; run.Items[0].Phase = RunPhase.AwaitingReboot;
+            run.ExpectedBootId = scenario.Previous; run.PendingOperation = "cycle"; run.OperationId = Guid.NewGuid(); run.OperationStartedAt = DateTimeOffset.Now.AddSeconds(-10);
+            var coordinator = new AgingCoordinator(new JsonRunStore(Path.Combine(root, "state.json")), new LegacyLogWriter(), new BootEvidencePlatform(after));
+            await coordinator.RunAsync(run, true);
+            Require(run.Items[0].CompletedCycles == scenario.Count && run.HardwarePassed == (scenario.Count == 1), "Reboot recovery counted an unproven boot: " + scenario.Name);
+        }
+        results.Add(new { Case = "KernelStartIdentityAndRecoveryCountsOnlyNewBoots", Passed = true, PhysicalActions = false, CurrentBootId = actual });
+    }
+    private sealed class BootEvidencePlatform(string bootId) : ITaskPlatform
+    {
+        public string BootId => bootId;
+        public Task<PreflightResult> PreflightAsync(AgingItem item, RunSnapshot run, CancellationToken ct) => Task.FromResult(PreflightResult.Success());
+        public Task<DeviceSnapshot> CaptureDevicesAsync(CancellationToken ct) => Task.FromResult(new DeviceSnapshot([], 0));
+        public Task<IReadOnlyList<string>> CheckAsync(AgingItem item, RunSnapshot run, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>([]);
+        public Task RebootAsync(CancellationToken ct) => throw new InvalidOperationException("Boot evidence regression must never reboot");
+        public Task<TaskResult> ExecuteAsync(AgingItem item, RunSnapshot run, Action<string> progress, CancellationToken ct) => throw new InvalidOperationException("Boot evidence regression must never launch hardware loads");
+        public Task AfterRunAsync(RunSnapshot run, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private static async Task CompatibilityReportRegressionsAsync()
+    {
+        string bundle = AppFiles.FindBundledTools();
+        var defaults = AppFiles.DiscoverTools(bundle);
+        Require(File.Exists(defaults.Power) && File.Exists(defaults.Video), "Compatibility regression needs the bundled components");
+        async Task<JsonDocument> CaptureReport(string data, string name)
+        {
+            string path = Path.Combine(output, name + ".json");
+            var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "Test.exe"))
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                ArgumentList = { "--data", data, "--compatibility-report", path }
+            };
+            using var process = Process.Start(start)!;
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(45)); }
+            catch { if (!process.HasExited) process.Kill(entireProcessTree: true); throw; }
+            Require(process.ExitCode == 0 && File.Exists(path), "Compatibility CLI did not produce a report");
+            return JsonDocument.Parse(File.ReadAllText(path));
+        }
+        static JsonElement Item(JsonDocument report, string name) => report.RootElement.GetProperty("Items").EnumerateArray().Single(x => x.GetProperty("Name").GetString() == name);
+        void AssertTools(JsonDocument report, string video)
+        {
+            Require(Item(report, "PwrTest x64").GetProperty("Detail").GetString() == defaults.Power, "Compatibility CLI incorrectly reports the bundled PwrTest as missing");
+            Require(Item(report, "视频文件").GetProperty("Detail").GetString() == video, "Compatibility CLI failed to resolve the configured video");
+            Require(Item(report, "BurnIn").GetProperty("Status").GetString() != "未配置已验证引擎", "Compatibility CLI incorrectly reports the bundled BurnIn as missing");
+        }
+        string fresh = Path.Combine(output, "compatibility-fresh-data");
+        Require(!Directory.Exists(fresh), "Fresh compatibility data must not already exist");
+        using (var report = await CaptureReport(fresh, "compatibility-fresh")) AssertTools(report, defaults.Video);
+        Require(!Directory.Exists(fresh), "A read-only compatibility report must not initialize user data");
+        results.Add(new { Case = "FreshCompatibilityReportDiscoversBundledToolsWithoutWritingUserData", Passed = true, PhysicalActions = false });
+
+        var files = Files("compatibility-existing");
+        var options = JsonData.Clone(files.Options);
+        string external = Path.Combine(output, "compatibility-external-video.mp4");
+        File.WriteAllText(external, "Read-only path resolution fixture; never played");
+        options.ReferenceRoot = Path.Combine(output, "removed-old-install");
+        options.PwrTestPath = Path.Combine(options.ReferenceRoot, "Sleep", "pwrtest_x64.exe");
+        options.BurnInPath = Path.Combine(options.ReferenceRoot, "BurnInTest", "BurnInTest", "bit.exe");
+        options.VideoPath = external;
+        files.Save(DefaultQueue(), options);
+        var config = File.ReadAllBytes(files.ConfigPath); var saved = File.ReadAllBytes(files.OptionsPath);
+        using (var report = await CaptureReport(files.Root, "compatibility-existing")) AssertTools(report, external);
+        Require(config.SequenceEqual(File.ReadAllBytes(files.ConfigPath)) && saved.SequenceEqual(File.ReadAllBytes(files.OptionsPath)), "Compatibility inspection must not persist migration or alter the queue/options");
+        results.Add(new { Case = "CompatibilityReportResolvesMigrationAndPreservesExternalOverridesWithoutWriting", Passed = true, PhysicalActions = false });
+    }
 
     private static void AppFilesMigrationRegressions()
     {
@@ -345,10 +475,85 @@ internal static class Program
         return run;
     }
     private static async Task VideoThroughStartupAsync(bool stop) => await ThroughStartupAsync(stop ? "real-video-stop" : videoPass ? "real-video-pass-control" : "real-video-fail", TaskKind.Video, stop, false);
+    private static async Task PowerThroughStartupAsync(string kind)
+    {
+        Require(kind is "S3" or "S4" or "Reboot", "Explicit power test kind is required");
+        string name = "real-" + kind.ToLowerInvariant();
+        var files = Files(name);
+        var item = AgingItem.Parse(kind == "Reboot" ? "Reboot|1|30|Y|N|N|N" : $"{kind}|1|30|60|Y|N|N");
+        var options = JsonData.Clone(files.Options); options.SwitchReboot = false; options.AgingInNextBoot = false; options.TestWithMaxVolume = false;
+        files.Save([item], options);
+        using var owner = new MainForm(files); owner.Show(shell); await Task.Delay(100); owner.OpenDashboard();
+        owner.Coordinator.Changed += run =>
+        {
+            if (run.Phase == RunPhase.AwaitingReboot)
+                File.WriteAllText(Path.Combine(output, "reboot-prepared.json"), JsonSerializer.Serialize(new { run.RunId, run.ExpectedBootId, run.ResumeExecutable, run.ResumeDataRoot, run.ResumeVersion, run.PendingOperation, PreparedAt = DateTimeOffset.Now }, JsonData.Options));
+        };
+        bool confirmed = false, blocked = false; string? failure = null;
+        var watch = Stopwatch.StartNew();
+        using var timer = new System.Windows.Forms.Timer { Interval = 100 };
+        timer.Tick += (_, _) =>
+        {
+            try
+            {
+                if (watch.Elapsed > TimeSpan.FromMinutes(8)) throw new TimeoutException("Power test did not finish in deadline");
+                var setup = Application.OpenForms.OfType<StartRunForm>().FirstOrDefault();
+                if (!confirmed && setup != null && setup.DetectionReady.IsCompleted)
+                {
+                    Control<CheckBox>(setup, "SwitchReboot").Checked = false;
+                    Control<CheckBox>(setup, "MaximumVolume").Checked = false;
+                    Control<CheckBox>(setup, "NextBoot").Checked = false;
+                    Capture(setup, name + "-startup.png");
+                    if (!Control<Button>(setup, "BeginRealRun").Enabled)
+                    {
+                        var grid = Control<DataGridView>(setup, "StartupItems");
+                        string reason = grid.Rows[0].Cells[4].Value?.ToString() ?? "";
+                        Require(kind == "S3" && reason.Contains("系统不支持 S3"), "Power dependency failure: " + reason);
+                        blocked = true; confirmed = true;
+                        results.Add(new { Case = "UnsupportedS3IsBlockedOnActualMachine", Passed = true, Supported = false, HardwarePassed = false, Detail = reason });
+                        setup.Close(); return;
+                    }
+                    confirmed = true; Control<Button>(setup, "BeginRealRun").PerformClick(); return;
+                }
+                IntPtr dialog = FindWindow(null, "开始真实老化");
+                if (dialog != IntPtr.Zero)
+                {
+                    GetWindowThreadProcessId(dialog, out uint pid);
+                    Require(pid == Environment.ProcessId, "Never confirm another process's power operation");
+                    PostMessage(GetDlgItem(dialog, 1), 0x00F5, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            catch (Exception e)
+            {
+                failure = e.ToString(); timer.Stop(); owner.StopRun();
+                foreach (var setup in Application.OpenForms.OfType<StartRunForm>().ToArray()) setup.Close();
+            }
+        };
+        timer.Start(); await owner.StartRunAsync(false); timer.Stop();
+        if (failure != null) throw new InvalidOperationException(failure);
+        if (!blocked)
+        {
+            var run = owner.Coordinator.Current ?? throw new IOException("Power test did not reach the coordinator");
+            if (kind == "Reboot" && run.Phase == RunPhase.AwaitingReboot)
+            {
+                // Windows terminates this harness during reboot. The registered production
+                // Test.exe must recover the durable checkpoint after the next user logon.
+                await Task.Delay(TimeSpan.FromMinutes(2));
+                throw new TimeoutException("Windows did not complete the requested reboot");
+            }
+            results.Add(new { Case = name, Passed = run.HardwarePassed && run.Items[0].CompletedCycles == 1, Simulation = run.Simulation, run.HardwarePassed, Outcome = run.Outcome.ToString(), CompletedCycles = run.Items[0].CompletedCycles, run.LogDirectory });
+            Require(run.HardwarePassed && run.Items[0].CompletedCycles == 1, "Power test failed: " + string.Join(";", run.Items[0].Errors));
+        }
+        owner.Close();
+    }
     private static async Task BurnInThroughStartupAsync()
     {
         var run = await ThroughStartupAsync("real-burnin-mode" + burnInMode + "-six-minute", TaskKind.BurnIn, false, true);
-        if (run.Outcome != Outcome.Pass) results.Add(new { Case = "BurnInHardwareAcceptance", Passed = false, Detail = "Actual engine returned non-PASS; retained raw report, not overridden", Errors = run.Items.SelectMany(x => x.Errors).ToList() });
+        if (run.Outcome != Outcome.Pass)
+        {
+            results.Add(new { Case = "BurnInHardwareAcceptance", Passed = false, Detail = "Actual engine returned non-PASS; retained raw report, not overridden", Errors = run.Items.SelectMany(x => x.Errors).ToList() });
+            Environment.ExitCode = 1;
+        }
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string? className, string title);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);

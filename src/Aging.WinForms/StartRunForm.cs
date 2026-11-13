@@ -60,7 +60,7 @@ public sealed class StartRunForm : Form
     }
 
     public static string Describe(AgingItem item) => item.IsPower ? $"{item.Cycles} 次，每次倒计时 {item.DelaySeconds} 秒" +
-        (item.Kind == TaskKind.Reboot ? "" : $"，睡眠 {item.SleepSeconds} 秒") : item.IsStress ? $"{item.Hours * 60:0.##} 分钟" : "人工确认画面和声音";
+        (item.Kind == TaskKind.Reboot ? "" : $"，睡眠 {item.SleepSeconds} 秒") : item.IsStress ? $"{item.Hours * 60:0.##} 分钟" + (item.Kind == TaskKind.BurnIn ? "，" + AgingItem.BurnInModeNames[item.BurnInMode] : "") : "人工确认画面和声音";
 
     private AppOptions SelectedOptions()
     {

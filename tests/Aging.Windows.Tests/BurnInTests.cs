@@ -31,6 +31,21 @@ public sealed class BurnInTests
         Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good.Replace("CPU  ", "Other  "), 0.1, 1).Outcome);
     }
     [Fact]
+    public void DdrRequiresAnIsolatedMemoryReportWithRealOperations()
+    {
+        const string memory = "Test Duration: 000h 06m 02s\r\nMemory (RAM)  12  107 Trillion  PASS  0  No errors\r\nTEST RUN PASSED\r\n";
+        Assert.Equal("BurnIn|0.1|3", AgingItem.Parse("BurnIn|0.1|3").Serialize());
+        Assert.Equal(Outcome.Pass, BurnInAdapter.EvaluateReport(memory, 0.1, 3).Outcome);
+        Assert.Equal(Outcome.Pass, BurnInAdapter.EvaluateReport(memory.Replace("TEST RUN PASSED", "Temperature  -  -  PASS  0  No errors\r\nTEST RUN PASSED"), 0.1, 3).Outcome);
+        Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(memory.Replace("107 Trillion", "0 Trillion"), 0.1, 3).Outcome);
+        Assert.Equal(Outcome.Fail, BurnInAdapter.EvaluateReport(memory.Replace("PASS  0", "FAIL  1"), 0.1, 3).Outcome);
+        Assert.Equal(Outcome.Uncertain, BurnInAdapter.EvaluateReport(Good, 0.1, 3).Outcome);
+        string script = BurnInAdapter.CreateScript(@"C:\QA\mode.bitcfg", @"C:\QA\result.log", .1, 3);
+        Assert.Contains("SETRAM TYPE standard PATTERN cyclic PRETEST no LOG yes", script);
+        Assert.Contains("SETDUTYCYCLE MEMORY 100", script);
+        Assert.EndsWith("RUN MEMORY\r\nEXIT\r\n", script);
+    }
+    [Fact]
     public void ScriptUsesMinutesAndOverridesPreAndPostActions()
     {
         string script = BurnInAdapter.CreateScript(@"C:\QA\mode.bitcfg", @"C:\QA\result.log", 0.1);

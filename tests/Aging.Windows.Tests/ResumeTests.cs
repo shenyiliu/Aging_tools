@@ -31,6 +31,7 @@ public sealed class ResumeTests
         Assert.Equal(Sid, xml.Descendants(ns + "LogonTrigger").Single().Element(ns + "UserId")!.Value);
         Assert.Equal("InteractiveToken", xml.Descendants(ns + "LogonType").Single().Value);
         Assert.Equal("HighestAvailable", xml.Descendants(ns + "RunLevel").Single().Value);
+        Assert.Equal("4", xml.Descendants(ns + "Priority").Single().Value);
         Assert.Equal(identity.Executable, xml.Descendants(ns + "Command").Single().Value);
         Assert.Equal(identity.Arguments, xml.Descendants(ns + "Arguments").Single().Value);
         Assert.Contains("--resume-run " + identity.RunId.ToString("D"), identity.Arguments);

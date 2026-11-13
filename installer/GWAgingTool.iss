@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #define AppVersion "0.3.4"
 #endif
 #ifndef SourceDir
   #error SourceDir is required
@@ -83,7 +83,7 @@ Type: files; Name: "{app}\Tools\SFT\SFTClassic.exe"
 Type: files; Name: "{app}\Tools\3DMark\3DMarkTest.ini"
 
 [Run]
-Filename: "{app}\Test.exe"; Description: "启动老化测试工具（真实模式，启动测试前需配置并确认）"; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\Test.exe"; Description: "启动老化测试工具（管理员权限，启动测试前需配置并确认）"; Flags: nowait postinstall skipifsilent shellexec runasoriginaluser
 
 [Code]
 function OpenReplaceProbe(FileName: String; Access, Share: Cardinal;
@@ -169,9 +169,10 @@ begin
   end;
   Exe := ExpandConstant('{app}\Test.exe');
   if FileExists(Exe) then begin
-    if not Exec(Exe, '--uninstall-cleanup', ExpandConstant('{app}'), SW_HIDE,
+    { Current-user uninstall may be unelevated; the cleanup entry now requires admin too. }
+    if not ShellExec('runas', Exe, '--uninstall-cleanup', ExpandConstant('{app}'), SW_HIDE,
                 ewWaitUntilTerminated, ExitCode) then begin
-      SuppressibleMsgBox('无法清理本安装目录对应的登录续测任务。请修复安装后重试。', mbError, MB_OK, IDOK);
+      SuppressibleMsgBox('无法以管理员权限清理本安装目录对应的登录续测任务。请允许 UAC 授权或以管理员身份重试卸载。', mbError, MB_OK, IDOK);
       Exit;
     end;
     if ExitCode <> 0 then begin

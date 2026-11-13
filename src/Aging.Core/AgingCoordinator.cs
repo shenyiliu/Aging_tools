@@ -69,7 +69,7 @@ public sealed class AgingCoordinator(IRunStore store, ILegacyLogWriter logs, ITa
         {
             if (recovering && run.Phase == RunPhase.AwaitingReboot)
             {
-                if (!run.Simulation && platform.BootId == run.ExpectedBootId)
+                if (!run.Simulation && !BootSession.HasChanged(run.ExpectedBootId, platform.BootId))
                 { Changed?.Invoke(run); return; } // Merely reopening the application never adds a cycle.
                 if (run.PendingOperation == "cycle")
                     await CompleteCycleAsync(run, Math.Max(0, (DateTimeOffset.Now - run.OperationStartedAt!.Value).TotalSeconds), linked.Token);
